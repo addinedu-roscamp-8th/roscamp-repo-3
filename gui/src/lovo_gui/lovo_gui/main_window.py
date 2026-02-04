@@ -22,6 +22,7 @@ from lovo_gui.tabs.monitoring_tab import MonitoringTab
 from lovo_gui.tabs.communication_tab import CommunicationTab
 from lovo_gui.tabs.log_tab import LogTab
 
+#######
 
 class MyMainWindow(QMainWindow):
     """메인 윈도우"""
@@ -52,6 +53,8 @@ class MyMainWindow(QMainWindow):
         """UI 구성"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        # 변수 추가 Test
+        margin_window = 10
         
         # 메인 레이아웃 (수평: 탭 + 사이드바)
         main_layout = QHBoxLayout(central_widget)
