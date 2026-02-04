@@ -1,0 +1,24 @@
+# ROS2 build artifacts
+build/
+install/
+log/
+
+# Robot configuration
+robotname.json
+pose_memory/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
