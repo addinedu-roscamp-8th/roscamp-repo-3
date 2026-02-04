@@ -1,5 +1,0 @@
-string robot_id
-string status
----
-bool success
-string message
