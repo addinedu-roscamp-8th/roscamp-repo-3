@@ -1,0 +1,23 @@
+nohup: ignoring input
+/home/addinedu/Desktop/teamproject/ai_server/main.py:217: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+YOLO Models loaded successfully.
+INFO:     Started server process [11337]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+Receiver started for robot1 on port 9511
+Receiver started for robot2 on port 9521
+Receiver started for robot3 on port 9541
+Broadcast sent to robot3 (192.168.0.48:9542)
+INFO:     127.0.0.1:53792 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53794 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [11337]
