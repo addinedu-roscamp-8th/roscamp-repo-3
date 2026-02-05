@@ -9,8 +9,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent, QScreen
 
-from lovo_gui.config_manager import ConfigManager
-from lovo_gui.communication import CommunicationManager
+from lovo_gui.utils import ConfigManager, CommunicationManager
 from lovo_gui.constants import (
     WINDOW_WIDTH, WINDOW_HEIGHT, SIDEBAR_WIDTH, SIDEBAR_BUTTON_HEIGHT,
     STYLE_BUTTON_GREEN, STYLE_BUTTON_RED, STYLE_BUTTON_YELLOW, STYLE_BUTTON_GRAY,
@@ -21,6 +20,7 @@ from lovo_gui.tabs.manual_tab import ManualTab
 from lovo_gui.tabs.monitoring_tab import MonitoringTab
 from lovo_gui.tabs.communication_tab import CommunicationTab
 from lovo_gui.tabs.log_tab import LogTab
+from lovo_gui.tabs.ros_monitor_tab import RosMonitorTab
 
 #######
 
@@ -31,7 +31,7 @@ class MyMainWindow(QMainWindow):
         super().__init__()
         
         # 설정 및 통신 매니저 초기화
-        self.config_manager = ConfigManager("robotname.json")
+        self.config_manager = ConfigManager("config/robotname.json")
         self.comm_manager = CommunicationManager()
         
         self.setWindowTitle("Lovo 제어 시스템")
@@ -135,12 +135,19 @@ class MyMainWindow(QMainWindow):
         self.communication_tab = CommunicationTab(self.config_manager, self.comm_manager)
         tabs.addTab(self.communication_tab, "Communication")
         
+        # ROS Monitor 탭
+        self.ros_monitor_tab = RosMonitorTab()
+        tabs.addTab(self.ros_monitor_tab, "ROS Monitor")
+        
         # Log 탭
         self.log_tab = LogTab()
         tabs.addTab(self.log_tab, "Log")
         
         # Manual 탭에 컨트롤러 연결
         self.manual_tab.connect_controllers(self.communication_tab)
+        
+        # ROS Monitor 탭에 로봇 컨트롤러 전달
+        self.ros_monitor_tab.set_robot_controllers(self.communication_tab.robot_controllers)
         
         return tabs
     

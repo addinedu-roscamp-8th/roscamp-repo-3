@@ -44,6 +44,7 @@ class RobotDashboardWidget(QWidget):
         self.pose_error_labels = [None] * 6
         self.pose_delta_inputs = [None] * 6
         self.absolute_coord_inputs = [None] * 6  # 절대 좌표 이동 입력 필드
+        self.absolute_angle_inputs = [None] * 6  # 절대 각도 이동 입력 필드
         
         # 메모리
         self.pose_memory = {i: [0.0]*6 for i in range(1, 6)}
@@ -59,6 +60,7 @@ class RobotDashboardWidget(QWidget):
         # RobotArmController Signal 연결
         controller.coords_updated.connect(self.update_coords_display)
         controller.pose_updated.connect(self.update_pose_display)
+        controller.angles_updated.connect(self.update_angles_display)
     
     def _setup_ui(self):
         """UI 구성"""
@@ -262,6 +264,11 @@ class RobotDashboardWidget(QWidget):
         
         main_layout.addLayout(c_grid)
         
+        # ==================== 절대 좌표/각도 이동 섹션 ====================
+        # 수평 레이아웃으로 절대 좌표와 절대 각도를 나란히 배치
+        abs_control_layout = QHBoxLayout()
+        abs_control_layout.setSpacing(10)
+        
         # ==================== 절대 좌표 이동 섹션 ====================
         abs_coord_group = QGroupBox("📍 절대 좌표 이동 (Absolute Coordinate Movement)")
         abs_coord_layout = QVBoxLayout()
@@ -302,7 +309,52 @@ class RobotDashboardWidget(QWidget):
             abs_coord_layout.addLayout(coord_h_layout)
         
         abs_coord_group.setLayout(abs_coord_layout)
-        main_layout.addWidget(abs_coord_group)
+        abs_control_layout.addWidget(abs_coord_group)
+        
+        # ==================== 현재 엔코더 각도 표시 섹션 ====================
+        abs_angle_group = QGroupBox("🔧 현재 엔코더 각도 (Current Encoder Angles)")
+        abs_angle_layout = QVBoxLayout()
+        abs_angle_layout.setSpacing(10)
+        abs_angle_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # 라벨과 출력칸을 가로로 정렬
+        angle_axes = ["J1(°)", "J2(°)", "J3(°)", "J4(°)", "J5(°)", "J6(°)"]
+        
+        for i in range(6):
+            # 각 각도별 수평 레이아웃
+            angle_h_layout = QHBoxLayout()
+            angle_h_layout.setSpacing(10)
+            angle_h_layout.setContentsMargins(5, 0, 5, 0)
+            
+            # 라벨
+            axis_lbl = QLabel(angle_axes[i])
+            axis_lbl.setFixedWidth(LABEL_WIDTH)
+            axis_lbl.setFont(self.main_font)
+            axis_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            axis_lbl.setStyleSheet(
+                "border: 2px solid #666; background-color: #E0E0E0; color: black; border-radius: 3px; padding: 4px;"
+            )
+            angle_h_layout.addWidget(axis_lbl)
+            
+            # 출력 필드 (읽기 전용)
+            input_field = QLineEdit("0.0")
+            input_field.setFixedWidth(VALUE_WIDTH)
+            input_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            input_field.setReadOnly(True)
+            input_field.setStyleSheet(
+                "background-color: #F5F5F5; color: #333; "
+                "border: 2px solid #BDBDBD; border-radius: 3px; padding: 2px;"
+            )
+            self.absolute_angle_inputs[i] = input_field
+            angle_h_layout.addWidget(input_field)
+            
+            angle_h_layout.addStretch()
+            abs_angle_layout.addLayout(angle_h_layout)
+        
+        abs_angle_group.setLayout(abs_angle_layout)
+        abs_control_layout.addWidget(abs_angle_group)
+        
+        main_layout.addLayout(abs_control_layout)
         
         # Move 버튼 추가
         move_btn_layout = QHBoxLayout()
@@ -354,6 +406,13 @@ class RobotDashboardWidget(QWidget):
         """포즈 데이터 업데이트 (current_pose)"""
         # pose_memory 저장용
         pass
+    
+    def update_angles_display(self, angles):
+        """엔코더 각도 데이터 업데이트"""
+        for i in range(6):
+            if self.absolute_angle_inputs[i] and len(angles) > i:
+                angle_value = angles[i] if isinstance(angles[i], (int, float)) else 0.0
+                self.absolute_angle_inputs[i].setText(f"{angle_value:.2f}")
     
     # ==================== 제어 메서드 ====================
     

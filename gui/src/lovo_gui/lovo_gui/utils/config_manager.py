@@ -10,7 +10,7 @@ from pathlib import Path
 class ConfigManager:
     """robotname.json 설정 파일 관리"""
     
-    def __init__(self, config_path="robotname.json"):
+    def __init__(self, config_path="config/robotname.json"):
         self.config_path = config_path
         self.config = {}
         # CSV 저장 디렉토리

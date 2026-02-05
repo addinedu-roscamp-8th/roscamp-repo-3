@@ -95,8 +95,6 @@ class ManualTab(QWidget):
             if controller:
                 dashboard.set_controller(controller)
                 print(f"✅ {robot_id} 컨트롤러 연결됨")
-            else:
-                print(f"⚠️ {robot_id} 컨트롤러 없음 (비활성화된 로봇)")
             
             # 작업 로그 signal 연결 (컨트롤러 없어도 연결)
             if hasattr(dashboard, 'work_log_signal'):

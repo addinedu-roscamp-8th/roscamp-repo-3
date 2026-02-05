@@ -8,11 +8,16 @@ import cv2
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
-    QSpinBox, QDoubleSpinBox, QCheckBox, QGridLayout
+    QSpinBox, QDoubleSpinBox, QCheckBox, QGridLayout, QComboBox, QRadioButton, QButtonGroup
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 import numpy as np
+
+# 알고리즘 모듈
+from lovo_gui.algorithm import (
+    CoordinateTransformer, HandEyeTransformer, ArucoMarkerProcessor, PickupSequence
+)
 
 # ArUco 마커 감지를 위한 라이브러리
 ARUCO_AVAILABLE = False
@@ -21,12 +26,10 @@ aruco = None
 try:
     import cv2.aruco as aruco
     ARUCO_AVAILABLE = True
-    print(f"✅ ArUco 모듈 로드됨: cv2.aruco")
 except ImportError:
     try:
         from cv2 import aruco
         ARUCO_AVAILABLE = True
-        print(f"✅ ArUco 모듈 로드됨: from cv2 import aruco")
     except ImportError:
         print(f"⚠️ ArUco 모듈을 찾을 수 없습니다")
         ARUCO_AVAILABLE = False
@@ -52,15 +55,25 @@ class CameraWidget(QWidget):
         self.aruco_target_coords = None  # 감지된 마커의 로봇 좌표 [x, y, z, r, p, yaw]
         self.aruco_marker_id = None
         
+        # 픽업 시퀀스 관리
+        self.pickup_sequence = PickupSequence()
+        
         # 캘리브레이션 데이터 로드
         self.camera_matrix = None
         self.dist_coeffs = None
         self.hand_eye_matrix = None
         self._load_calibration_data()
         
+        # 좌표 변환 알고리즘 내부 인스턴스
+        self.coord_transformer = CoordinateTransformer()
+        self.hand_eye_transformer = None
+        if self.hand_eye_matrix is not None and self.camera_matrix is not None:
+            self.hand_eye_transformer = HandEyeTransformer(self.hand_eye_matrix, self.camera_matrix)
+        
         # ArUco 마커 감지기 초기화
         self.aruco_dict = None
         self.aruco_detector = None
+        self.aruco_processor = None
         
         if ARUCO_AVAILABLE and aruco is not None:
             try:
@@ -69,11 +82,11 @@ class CameraWidget(QWidget):
                 try:
                     params = aruco.DetectorParameters()
                     self.aruco_detector = aruco.ArucoDetector(self.aruco_dict, params)
-                    print(f"✅ ArUco 초기화 완료 (새 API, DICT_4X4_50)")
                 except Exception as e1:
-                    print(f"⚠️ 새 ArUco API 실패: {e1}, 구 API 시도...")
                     self.aruco_detector = None  # 구 API 사용
-                    print(f"✅ ArUco 초기화 완료 (구 API 모드, DICT_4X4_50)")
+                
+                # ArucoMarkerProcessor 인스턴스 생성
+                self.aruco_processor = ArucoMarkerProcessor()
             except Exception as e:
                 print(f"⚠️ ArUco 초기화 실패: {e}")
                 self.aruco_dict = None
@@ -105,31 +118,31 @@ class CameraWidget(QWidget):
     def _setup_ui(self):
         """UI 구성"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 2, 5, 5)
-        layout.setSpacing(3)
+        layout.setContentsMargins(3, 2, 3, 2)
+        layout.setSpacing(2)
         
         vision_group = QGroupBox(f"📷 {self.robot_name} Camera")
         vision_group.setStyleSheet("""
             QGroupBox { 
-                font-size: 12px; 
-                padding-top: 12px; 
+                font-size: 10px; 
+                padding-top: 8px; 
                 margin-top: 0px; 
             }
             QGroupBox::title { 
                 subcontrol-origin: margin; 
                 subcontrol-position: top left; 
-                padding: 0px 5px;
+                padding: 0px 3px;
                 top: -2px;
             }
         """)
         vision_layout = QVBoxLayout()
-        vision_layout.setContentsMargins(3, 8, 3, 3)
-        vision_layout.setSpacing(3)
+        vision_layout.setContentsMargins(2, 5, 2, 2)
+        vision_layout.setSpacing(2)
         
         # 카메라 뷰
         self.cam_view = QLabel("카메라 대기 중...")
         self.cam_view.setFixedSize(640, 480)
-        self.cam_view.setStyleSheet("background-color: black; color: white; border: 2px solid #555; border-radius: 4px;")
+        self.cam_view.setStyleSheet("background-color: black; color: white; border: 1px solid #555; border-radius: 4px;")
         self.cam_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         vision_layout.addWidget(self.cam_view)
         
@@ -141,9 +154,9 @@ class CameraWidget(QWidget):
         btn_layout.setSpacing(3)
         
         # ============ 버튼 크기 설정 (여기서 수정) ============
-        BTN_WIDTH = 120   # 버튼 가로 크기
-        BTN_HEIGHT = 30   # 버튼 세로 크기
-        # ====================================================
+        BTN_WIDTH = 100   # 버튼 가로 크기 (축소)
+        BTN_HEIGHT = 24   # 버튼 세로 크기 (축소)
+        # =====================================================
         
         # 첫 번째 줄: Connect, 캡쳐, Live, Align
         btn_row1 = QHBoxLayout()
@@ -209,13 +222,48 @@ class CameraWidget(QWidget):
         vision_group.setLayout(vision_layout)
         layout.addWidget(vision_group)
         
+        # 파라미터 토글 섹션 (라디오 버튼)
+        toggle_layout = QHBoxLayout()
+        toggle_layout.addStretch()
+        
+        # 라디오 버튼 그룹
+        self.param_button_group = QButtonGroup(self)
+        
+        self.radio_show_aruco = QRadioButton("🔧 ArUco 파라미터")
+        self.radio_show_aruco.setChecked(True)
+        self.radio_show_aruco.toggled.connect(self._toggle_parameters)
+        self.param_button_group.addButton(self.radio_show_aruco)
+        toggle_layout.addWidget(self.radio_show_aruco)
+        
+        self.radio_show_coord = QRadioButton("📐 좌표 변환 파라미터")
+        self.radio_show_coord.toggled.connect(self._toggle_parameters)
+        self.param_button_group.addButton(self.radio_show_coord)
+        toggle_layout.addWidget(self.radio_show_coord)
+        
+        toggle_layout.addStretch()
+        layout.addLayout(toggle_layout)
+        
         # ArUco 파라미터 설정 섹션 (640px 너비 맞춤)
         param_group = QGroupBox("🔧 ArUco 감지 파라미터")
+        param_group.setStyleSheet("""
+            QGroupBox { 
+                font-size: 9px; 
+                padding-top: 6px; 
+                margin-top: 0px; 
+            }
+            QGroupBox::title { 
+                subcontrol-origin: margin; 
+                subcontrol-position: top left; 
+                padding: 0px 2px;
+                top: -2px;
+            }
+        """)
         param_container = QWidget()
-        param_container.setMaximumWidth(640)
+        param_container.setMaximumWidth(480)
+        param_container.setMaximumHeight(80)
         param_layout = QGridLayout(param_container)
-        param_layout.setContentsMargins(5, 5, 5, 5)
-        param_layout.setSpacing(4)
+        param_layout.setContentsMargins(2, 2, 2, 2)
+        param_layout.setSpacing(2)
         
         # 주요 파라미터들 (2x3 그리드로 축소)
         param_layout.addWidget(QLabel("최소 둘레율"), 0, 0)
@@ -223,7 +271,8 @@ class CameraWidget(QWidget):
         self.spin_min_perimeter.setRange(0.01, 0.5)
         self.spin_min_perimeter.setValue(self.aruco_params['minMarkerPerimeterRate'])
         self.spin_min_perimeter.setSingleStep(0.01)
-        self.spin_min_perimeter.setMaximumWidth(70)
+        self.spin_min_perimeter.setMaximumWidth(80)
+        self.spin_min_perimeter.setFixedHeight(20)
         self.spin_min_perimeter.valueChanged.connect(self._update_aruco_param)
         param_layout.addWidget(self.spin_min_perimeter, 0, 1)
         
@@ -232,7 +281,7 @@ class CameraWidget(QWidget):
         self.spin_max_perimeter.setRange(0.5, 10.0)
         self.spin_max_perimeter.setValue(self.aruco_params['maxMarkerPerimeterRate'])
         self.spin_max_perimeter.setSingleStep(0.1)
-        self.spin_max_perimeter.setMaximumWidth(70)
+        self.spin_max_perimeter.setMaximumWidth(80)
         self.spin_max_perimeter.valueChanged.connect(self._update_aruco_param)
         param_layout.addWidget(self.spin_max_perimeter, 0, 3)
         
@@ -241,7 +290,7 @@ class CameraWidget(QWidget):
         self.spin_polygon_accu.setRange(0.01, 0.1)
         self.spin_polygon_accu.setValue(self.aruco_params['polygonalApproxAccuracyRate'])
         self.spin_polygon_accu.setSingleStep(0.001)
-        self.spin_polygon_accu.setMaximumWidth(70)
+        self.spin_polygon_accu.setMaximumWidth(80)
         self.spin_polygon_accu.valueChanged.connect(self._update_aruco_param)
         param_layout.addWidget(self.spin_polygon_accu, 1, 1)
         
@@ -250,7 +299,7 @@ class CameraWidget(QWidget):
         self.spin_min_otsu.setRange(0.0, 20.0)
         self.spin_min_otsu.setValue(self.aruco_params['minOtsuStdDev'])
         self.spin_min_otsu.setSingleStep(0.5)
-        self.spin_min_otsu.setMaximumWidth(70)
+        self.spin_min_otsu.setMaximumWidth(80)
         self.spin_min_otsu.valueChanged.connect(self._update_aruco_param)
         param_layout.addWidget(self.spin_min_otsu, 1, 3)
         
@@ -265,12 +314,99 @@ class CameraWidget(QWidget):
         self.spin_error_correction.setRange(0.0, 1.0)
         self.spin_error_correction.setValue(self.aruco_params['errorCorrectionRate'])
         self.spin_error_correction.setSingleStep(0.05)
-        self.spin_error_correction.setMaximumWidth(70)
+        self.spin_error_correction.setMaximumWidth(80)
         self.spin_error_correction.valueChanged.connect(self._update_aruco_param)
         param_layout.addWidget(self.spin_error_correction, 2, 3)
         
         param_group.setLayout(param_layout)
+        self.aruco_group = param_group  # 참조 저장
         layout.addWidget(param_group)
+        
+        # 좌표 변환 파라미터 그룹
+        coord_group = QGroupBox("📐 좌표 변환 파라미터")
+        coord_group.setStyleSheet("""
+            QGroupBox { 
+                font-size: 9px; 
+                padding-top: 6px; 
+                margin-top: 0px; 
+            }
+            QGroupBox::title { 
+                subcontrol-origin: margin; 
+                subcontrol-position: top left; 
+                padding: 0px 2px;
+                top: -2px;
+            }
+        """)
+        coord_container = QWidget()
+        coord_container.setMaximumWidth(480)
+        coord_container.setMaximumHeight(80)
+        coord_layout = QGridLayout(coord_container)
+        coord_layout.setContentsMargins(2, 2, 2, 2)
+        coord_layout.setSpacing(2)
+        
+        # 1행: 스케일 X, Y
+        coord_layout.addWidget(QLabel("스케일X"), 0, 0)
+        self.spin_scale_x = QDoubleSpinBox()
+        self.spin_scale_x.setRange(0.01, 5.0)
+        self.spin_scale_x.setValue(0.5)
+        self.spin_scale_x.setSingleStep(0.05)
+        self.spin_scale_x.setMaximumWidth(80)
+        self.spin_scale_x.setFixedHeight(20)
+        coord_layout.addWidget(self.spin_scale_x, 0, 1)
+        
+        coord_layout.addWidget(QLabel("스케일Y"), 0, 2)
+        self.spin_scale_y = QDoubleSpinBox()
+        self.spin_scale_y.setRange(0.01, 5.0)
+        self.spin_scale_y.setValue(0.5)
+        self.spin_scale_y.setSingleStep(0.05)
+        self.spin_scale_y.setMaximumWidth(80)
+        self.spin_scale_y.setFixedHeight(20)
+        coord_layout.addWidget(self.spin_scale_y, 0, 3)
+        
+        # 2행: 부호 X, Y
+        coord_layout.addWidget(QLabel("X부호"), 1, 0)
+        self.combo_sign_x = QComboBox()
+        self.combo_sign_x.addItems(["+", "-"])
+        self.combo_sign_x.setMaximumWidth(80)
+        self.combo_sign_x.setFixedHeight(20)
+        coord_layout.addWidget(self.combo_sign_x, 1, 1)
+        
+        coord_layout.addWidget(QLabel("Y부호"), 1, 2)
+        self.combo_sign_y = QComboBox()
+        self.combo_sign_y.addItems(["+", "-"])
+        self.combo_sign_y.setMaximumWidth(80)
+        self.combo_sign_y.setFixedHeight(20)
+        coord_layout.addWidget(self.combo_sign_y, 1, 3)
+        
+        # 3행: H-E 캘리브레이션, Z 오프셋, 스왑
+        coord_layout.addWidget(QLabel("H-E"), 2, 0)
+        self.check_use_hand_eye = QCheckBox("캘리브레이션")
+        self.check_use_hand_eye.setChecked(False)
+        coord_layout.addWidget(self.check_use_hand_eye, 2, 1)
+        
+        coord_layout.addWidget(QLabel("Z오프셋"), 2, 2)
+        self.spin_z_offset = QDoubleSpinBox()
+        self.spin_z_offset.setRange(-500.0, 500.0)
+        self.spin_z_offset.setValue(-100.0)
+        self.spin_z_offset.setSingleStep(10.0)
+        self.spin_z_offset.setMaximumWidth(80)
+        self.spin_z_offset.setFixedHeight(20)
+        coord_layout.addWidget(self.spin_z_offset, 2, 3)
+        
+        coord_layout.addWidget(QLabel("스왑"), 2, 4)
+        self.check_swap_xy = QCheckBox("X↔Y")
+        coord_layout.addWidget(self.check_swap_xy, 2, 5)
+        
+        coord_group.setLayout(coord_layout)
+        self.coord_group = coord_group  # 참조 저장
+        layout.addWidget(coord_group)
+        
+        # 초기에는 ArUco 파라미터만 표시 (라디오 버튼 기본값과 일치)
+        self.coord_group.setVisible(False)
+        
+        # 파라미터 토글 버튼 (상단에 추가하기 위해 나중에 처리)
+        # 여기서는 UI 구조 정의만 하고, 토글 기능은 아래에서 추가
+        self.check_show_aruco = None  # 나중에 설정
         
         layout.addStretch()
     
@@ -297,10 +433,15 @@ class CameraWidget(QWidget):
     def _load_calibration_data(self):
         """카메라 및 핸드-아이 캘리브레이션 데이터 로드"""
         try:
-            calibration_file = Path.home() / "lovo_ws" / "systemData" / "jetcobot_2" / "hand_eye_result.yaml"
+            calibration_file = Path.home() / "roscamp-repo-3" / "gui" / "systemData" / "jetcobot_2" / "hand_eye_result.yaml"
             
             if not calibration_file.exists():
-                print(f"ℹ️ 캘리브레이션 파일 없음: {calibration_file}")
+                msg = f"ℹ️ 캘리브레이션 파일 없음: {calibration_file}"
+                print(msg)
+                try:
+                    self.work_log_signal.emit(msg)
+                except:
+                    pass
                 return
             
             with open(calibration_file, 'r', encoding='utf-8') as f:
@@ -310,26 +451,60 @@ class CameraWidget(QWidget):
             try:
                 data = yaml.safe_load(content)
             except yaml.YAMLError:
-                print(f"⚠️ YAML 파싱 실패, 캘리브레이션 건너뜀")
                 return
             
             if data is None:
-                print(f"ℹ️ 캘리브레이션 파일이 비어있음")
+                msg = f"ℹ️ 캘리브레이션 파일이 비어있음"
+                print(msg)
+                try:
+                    self.work_log_signal.emit(msg)
+                except:
+                    pass
                 return
             
             # 카메라 내부 파라미터
             if 'K' in data and data['K'] and 'data' in data['K']:
                 self.camera_matrix = np.array(data['K']['data']).reshape(3, 3)
+                msg = f"📷 카메라 매트릭스 K:\n{self.camera_matrix}"
+                print(msg)
+                try:
+                    self.work_log_signal.emit(msg)
+                except:
+                    pass
             
             # 왜곡 계수
             if 'D' in data and data['D'] and 'data' in data['D']:
                 self.dist_coeffs = np.array(data['D']['data']).reshape(-1)
+                msg = f"🔧 왜곡 계수 D: {self.dist_coeffs}"
+                print(msg)
+                try:
+                    self.work_log_signal.emit(msg)
+                except:
+                    pass
             
             # 핸드-아이 캘리브레이션 행렬 (카메라-로봇 관계)
             if 'T_hand_eye' in data and data['T_hand_eye'] and 'data' in data['T_hand_eye']:
                 self.hand_eye_matrix = np.array(data['T_hand_eye']['data']).reshape(4, 4)
+                msg = f"🤖 Hand-Eye 변환 행렬 T_hand_eye:\n{self.hand_eye_matrix}"
+                print(msg)
+                try:
+                    self.work_log_signal.emit(msg)
+                except:
+                    pass
+            else:
+                msg = f"⚠️ Hand-Eye 변환 행렬이 없습니다!"
+                print(msg)
+                try:
+                    self.work_log_signal.emit(msg)
+                except:
+                    pass
             
-            print(f"✅ 캘리브레이션 데이터 로드됨: {calibration_file}")
+            msg = f"✅ 캘리브레이션 데이터 로드 완료: {calibration_file}"
+            print(msg)
+            try:
+                self.work_log_signal.emit(msg)
+            except:
+                pass
         except Exception as e:
             print(f"⚠️ 캘리브레이션 데이터 로드 실패: {e}")
     
@@ -343,6 +518,105 @@ class CameraWidget(QWidget):
         self.aruco_params['errorCorrectionRate'] = self.spin_error_correction.value()
         
         print(f"📋 ArUco 파라미터 업데이트됨")
+    
+    def _toggle_parameters(self):
+        """파라미터 그룹 토글 - 라디오 버튼 사용"""
+        # ArUco 파라미터가 선택되면 ArUco 표시, 아니면 좌표 변환 표시
+        show_aruco = self.radio_show_aruco.isChecked()
+        
+        self.aruco_group.setVisible(show_aruco)
+        self.coord_group.setVisible(not show_aruco)
+    
+    def _hand_eye_transform(self, pixel_x, pixel_y, camera_z=500.0):
+        """
+        Hand-Eye 캘리브레이션을 사용한 좌표 변환
+        픽셀 좌표 → 카메라 좌표 → 로봇 좌표
+        
+        Args:
+            pixel_x: 카메라 이미지의 픽셀 X (중심 기준 오프셋)
+            pixel_y: 카메라 이미지의 픽셀 Y (중심 기준 오프셋)
+            camera_z: 카메라 기울임 때문에 Z 거리 추정 (mm)
+        
+        Returns:
+            [x, y, z] 로봇 좌표계의 오프셋
+        """
+        
+        if self.hand_eye_matrix is None or self.camera_matrix is None:
+            log_msg = f"⚠️ Hand-Eye 캘리브레이션 데이터 없음 - 간단한 변환 사용"
+            print(log_msg)
+            try:
+                self.work_log_signal.emit(log_msg)
+            except:
+                pass
+            
+            # Fall back to simple scaling
+            scale_x = self.spin_scale_x.value()
+            scale_y = self.spin_scale_y.value()
+            return [pixel_x * scale_x, pixel_y * scale_y, 0]
+        
+        try:
+            # 카메라 내부 파라미터에서 초점거리와 주점 추출
+            fx = self.camera_matrix[0, 0]
+            fy = self.camera_matrix[1, 1]
+            cx = self.camera_matrix[0, 2]
+            cy = self.camera_matrix[1, 2]
+            
+            log_msg = f"📸 카메라 파라미터: fx={fx:.1f}, fy={fy:.1f}, cx={cx:.1f}, cy={cy:.1f}"
+            print(log_msg)
+            try:
+                self.work_log_signal.emit(log_msg)
+            except:
+                pass
+            
+            # 카메라 좌표 계산 (역 카메라 행렬 사용)
+            # 픽셀 좌표 → 정규화 이미지 좌표 → 카메라 3D 좌표
+            x_normalized = pixel_x / fx
+            y_normalized = pixel_y / fy
+            
+            # 카메라 3D 좌표 (Z = camera_z)
+            cam_x = x_normalized * camera_z
+            cam_y = y_normalized * camera_z
+            cam_z = camera_z
+            
+            log_msg = f"📷 카메라 좌표: X={cam_x:.1f}, Y={cam_y:.1f}, Z={cam_z:.1f}"
+            print(log_msg)
+            try:
+                self.work_log_signal.emit(log_msg)
+            except:
+                pass
+            
+            # Hand-Eye 변환 행렬 적용
+            # 카메라 좌표 → 로봇 베이스 좌표
+            cam_point = np.array([cam_x, cam_y, cam_z, 1.0])  # 동차 좌표
+            
+            robot_point = self.hand_eye_matrix @ cam_point  # 4x4 행렬 × 4x1 벡터
+            
+            robot_x = robot_point[0]
+            robot_y = robot_point[1]
+            robot_z = robot_point[2]
+            
+            log_msg = f"🤖 Hand-Eye 변환 후 로봇 좌표: X={robot_x:.1f}, Y={robot_y:.1f}, Z={robot_z:.1f}"
+            print(log_msg)
+            try:
+                self.work_log_signal.emit(log_msg)
+            except:
+                pass
+            
+            return [robot_x, robot_y, robot_z]
+            
+        except Exception as e:
+            log_msg = f"❌ Hand-Eye 변환 오류: {e}"
+            print(log_msg)
+            try:
+                self.work_log_signal.emit(log_msg)
+            except:
+                pass
+            
+            # Fall back to simple scaling
+            scale_x = self.spin_scale_x.value()
+            scale_y = self.spin_scale_y.value()
+            return [pixel_x * scale_x, pixel_y * scale_y, 0]
+    
     
     def _get_aruco_detector(self):
         """현재 파라미터로 ArUco 감지기 생성"""
@@ -433,16 +707,16 @@ class CameraWidget(QWidget):
             print(f"⚠️ {self.robot_name} 카메라가 연결되지 않았습니다")
     
     def _camera_pickup(self):
-        """픽업 실행 - ArUco 감지된 위치로 이동 → GRIP → Z축 상승"""
+        """픽업 실행 - 단계별 진행 (Step 0: 이동, Step 1: GRIP, Step 2: Z축 상승)"""
         try:
-            # 1. ArUco 감지된 좌표가 있는지 확인
+            # ArUco 감지된 좌표가 있는지 확인
             if not self.aruco_detected or self.aruco_target_coords is None:
                 log_msg = "⚠️ 먼저 ArUco 감지 버튼을 눌러 마커를 감지하세요"
                 print(log_msg)
                 self.work_log_signal.emit(log_msg)
                 return
             
-            # 2. 로봇 컨트롤러 확인
+            # 로봇 컨트롤러 확인
             if not self.robot_dashboard or not hasattr(self.robot_dashboard, 'controller') or not self.robot_dashboard.controller:
                 log_msg = "⚠️ 로봇 컨트롤러가 연결되지 않았습니다"
                 print(log_msg)
@@ -450,49 +724,100 @@ class CameraWidget(QWidget):
                 return
             
             controller = self.robot_dashboard.controller
-            target = [float(c) for c in self.aruco_target_coords]  # float 변환 확실히
             
-            log_msg = f"🤖 PICKUP 시작 - 마커 ID: {self.aruco_marker_id}"
-            print(log_msg)
-            self.work_log_signal.emit(log_msg)
-            
-            log_msg = f"📍 Step 1: 마커 위치로 이동"
-            print(log_msg)
-            self.work_log_signal.emit(log_msg)
-            log_msg = f"   Target: X={target[0]:.1f}, Y={target[1]:.1f}, Z={target[2]:.1f}, R={target[3]:.1f}, P={target[4]:.1f}, Yaw={target[5]:.1f}"
-            print(log_msg)
-            self.work_log_signal.emit(log_msg)
-            
-            # 좌표 명령 전송
-            print(f"[DEBUG] publish_coords 호출: {target}")
-            controller.publish_coords(target)
-            print(f"[DEBUG] publish_coords 완료")
-            
-            # 이동 완료 대기 후 GRIP (QTimer 사용)
-            from PyQt6.QtCore import QTimer
-            
-            def do_grip():
-                log_msg = "✊ Step 2: GRIP 실행"
+            # 단계별 실행
+            if self.pickup_step == 0:
+                # Step 0: 마커 위치로 이동
+                if hasattr(controller, 'robot_connected') and not controller.robot_connected:
+                    log_msg = "⚠️ 로봇 연결 상태가 Offline 입니다 (픽업 명령 전송은 시도합니다)"
+                    print(log_msg)
+                    self.work_log_signal.emit(log_msg)
+                else:
+                    log_msg = "✅ 로봇 연결 상태: Online"
+                    print(log_msg)
+                    self.work_log_signal.emit(log_msg)
+
+                if hasattr(controller, 'send_servo'):
+                    controller.send_servo(True)
+                    log_msg = "🔌 Servo ON 요청"
+                    print(log_msg)
+                    self.work_log_signal.emit(log_msg)
+                
+                target = [float(c) for c in self.aruco_target_coords]
+                
+                log_msg = f"🤖 PICKUP Step 1/3 - 마커 위치로 이동 (ID: {self.aruco_marker_id})"
                 print(log_msg)
                 self.work_log_signal.emit(log_msg)
+                log_msg = f"   Target: X={target[0]:.1f}, Y={target[1]:.1f}, Z={target[2]:.1f}, R={target[3]:.1f}, P={target[4]:.1f}, Yaw={target[5]:.1f}"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                
+                # 현재 좌표 출력
+                if hasattr(controller, 'current_coords'):
+                    current = controller.current_coords
+                    log_msg = f"   Current: X={current[0]:.1f}, Y={current[1]:.1f}, Z={current[2]:.1f}, R={current[3]:.1f}, P={current[4]:.1f}, Yaw={current[5]:.1f}"
+                    print(log_msg)
+                    self.work_log_signal.emit(log_msg)
+                
+                # 토픽 이름 확인
+                if hasattr(controller, 'pub_target_coords'):
+                    log_msg = f"   📡 토픽: {controller.pub_target_coords.topic_name}"
+                    print(log_msg)
+                    self.work_log_signal.emit(log_msg)
+                
+                print(f"[DEBUG] publish_coords 호출: {target}")
+                controller.publish_coords(target)
+                print(f"[DEBUG] publish_coords 완료")
+                
+                self.pickup_step = 1
+                self.btn_pickup.setText("✊ GRIP")
+                log_msg = "💡 이동 명령 전송 완료! 다시 버튼을 눌러 GRIP 하세요."
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                
+            elif self.pickup_step == 1:
+                # Step 1: GRIP 실행
+                log_msg = "✊ PICKUP Step 2/3 - GRIP 실행"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                
                 controller.send_gripper(1)  # 1 = GRIP
                 
-                # GRIP 후 Z축 100mm 상승
-                QTimer.singleShot(1500, do_lift)
-            
-            def do_lift():
-                lift_coords = [float(c) for c in self.aruco_target_coords]
-                lift_coords[2] += 100.0  # Z축 100mm 상승
-                
-                log_msg = f"⬆️ Step 3: Z축 100mm 상승 ({lift_coords[2]:.1f}mm)"
+                self.pickup_step = 2
+                self.btn_pickup.setText("⬆️ 들기")
+                log_msg = "💡 GRIP 명령 전송 완료! 다시 버튼을 눌러 Z축 상승하세요."
                 print(log_msg)
                 self.work_log_signal.emit(log_msg)
-                controller.publish_coords(lift_coords)
+                print(f"[DEBUG] pickup_step 변경: 1 → {self.pickup_step}")
                 
-                # 완료
-                QTimer.singleShot(2000, pickup_complete)
-            
-            def pickup_complete():
+            elif self.pickup_step == 2:
+                # Step 2: Z축 100mm 상승 (현재 로봇 위치 기준)
+                log_msg = f"[Step 3 진입] pickup_step={self.pickup_step}"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                
+                current_coords = list(controller.current_coords)
+                current_coords[2] += 100.0  # Z축만 100mm 상승
+                
+                log_msg = f"⬆️ PICKUP Step 3/3 - Z축 100mm 상승"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                log_msg = f"   현재 Z: {controller.current_coords[2]:.1f}mm → 목표 Z: {current_coords[2]:.1f}mm"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                
+                log_msg = f"[상승 명령] 전송 좌표: {current_coords}"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                
+                controller.publish_coords(current_coords)
+                
+                log_msg = "✅ Z축 상승 명령 완료!"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                
+                self.pickup_step = 0
+                self.btn_pickup.setText("🤖 Pickup")
                 log_msg = f"✅ PICKUP 완료! 마커 ID: {self.aruco_marker_id}"
                 print(log_msg)
                 self.work_log_signal.emit(log_msg)
@@ -500,9 +825,6 @@ class CameraWidget(QWidget):
                 # ArUco 상태 초기화 (영상 재개)
                 self.aruco_detected = False
                 self.aruco_frozen_frame = None
-            
-            # 이동 후 2초 대기하고 GRIP
-            QTimer.singleShot(2000, do_grip)
             
         except Exception as e:
             log_msg = f"❌ PICKUP 오류: {e}"
@@ -699,7 +1021,7 @@ class CameraWidget(QWidget):
                         mcx = int(np.mean(marker_corners[:, 0]))
                         mcy = int(np.mean(marker_corners[:, 1]))
                         
-                        log_msg = f"✅ ArUco 마커 감지! ID={marker_id}, 중심=({mcx}, {mcy})"
+                        log_msg = f"✅ ArUco 마커 감지! ID={marker_id}, 픽셀 좌표=({mcx}, {mcy})"
                         print(log_msg)
                         self.work_log_signal.emit(log_msg)
                         
@@ -707,7 +1029,7 @@ class CameraWidget(QWidget):
                         self.aruco_marker_id = marker_id
                         
                         # Step 6: 픽셀 → 로봇 좌표 변환
-                        log_msg = "🔍 Step 6: 좌표 변환 및 저장..."
+                        log_msg = "🔍 Step 6: 상세 좌표 변환..."
                         print(log_msg)
                         self.work_log_signal.emit(log_msg)
                         
@@ -716,14 +1038,26 @@ class CameraWidget(QWidget):
                         offset_px_x = mcx - center_x  # 양수 = 오른쪽
                         offset_px_y = mcy - center_y  # 양수 = 아래쪽
                         
-                        # 픽셀 → mm 변환 (스케일 팩터 - 카메라 높이와 해상도에 따라 조정 필요)
-                        scale_x = 0.5  # mm/pixel (X축)
-                        scale_y = 0.5  # mm/pixel (Y축)
+                        log_msg = f"📸 카메라 해상도: {w}x{h}, 중심: ({center_x}, {center_y}), 마커 위치: ({mcx}, {mcy})"
+                        print(log_msg)
+                        self.work_log_signal.emit(log_msg)
+                        
+                        log_msg = f"📏 카메라 중심 오프셋 (픽셀): X={offset_px_x}, Y={offset_px_y}"
+                        print(log_msg)
+                        self.work_log_signal.emit(log_msg)
+                        
+                        # 픽셀 → mm 변환 (스케일 팩터 - UI에서 조정 가능)
+                        scale_x = self.spin_scale_x.value()  # mm/pixel (X축)
+                        scale_y = self.spin_scale_y.value()  # mm/pixel (Y축)
                         
                         offset_mm_x = offset_px_x * scale_x
                         offset_mm_y = offset_px_y * scale_y
                         
-                        log_msg = f"📐 오프셋: 픽셀({offset_px_x}, {offset_px_y}) → mm({offset_mm_x:.1f}, {offset_mm_y:.1f})"
+                        log_msg = f"📐 스케일 팩터: X={scale_x}, Y={scale_y} (mm/pixel)"
+                        print(log_msg)
+                        self.work_log_signal.emit(log_msg)
+                        
+                        log_msg = f"📐 변환된 오프셋 (mm): X={offset_mm_x:.1f}, Y={offset_mm_y:.1f}"
                         print(log_msg)
                         self.work_log_signal.emit(log_msg)
                         
@@ -738,19 +1072,75 @@ class CameraWidget(QWidget):
                                 current_p = float(self.robot_dashboard.pose_actual_labels[4].text() or 0)
                                 current_yaw = float(self.robot_dashboard.pose_actual_labels[5].text() or 0)
                                 
-                                # 새 목표 좌표 (카메라 좌표계 → 로봇 좌표계 변환)
-                                target_x = current_x + offset_mm_x
-                                target_y = current_y - offset_mm_y  # Y축 반전
-                                
-                                # 목표 좌표 저장 (PICKUP에서 사용)
-                                self.aruco_target_coords = [target_x, target_y, current_z, current_r, current_p, current_yaw]
-                                self.aruco_detected = True
-                                
-                                log_msg = f"🤖 현재 위치: ({current_x:.1f}, {current_y:.1f}, {current_z:.1f})"
+                                log_msg = f"🤖 현재 로봇 좌표: X={current_x:.1f}, Y={current_y:.1f}, Z={current_z:.1f}, R={current_r:.1f}, P={current_p:.1f}, Yaw={current_yaw:.1f}"
                                 print(log_msg)
                                 self.work_log_signal.emit(log_msg)
                                 
-                                log_msg = f"🎯 목표 위치 저장됨: ({target_x:.1f}, {target_y:.1f}, {current_z:.1f})"
+                                # Hand-Eye 캘리브레이션 사용 여부
+                                if self.check_use_hand_eye.isChecked() and self.hand_eye_matrix is not None:
+                                    log_msg = f"✅ Hand-Eye 캘리브레이션 적용"
+                                    print(log_msg)
+                                    self.work_log_signal.emit(log_msg)
+                                    
+                                    # Hand-Eye 변환 사용
+                                    hand_eye_offset = self._hand_eye_transform(offset_px_x, offset_px_y, camera_z=500.0)
+                                    target_x = current_x + hand_eye_offset[0]
+                                    target_y = current_y + hand_eye_offset[1]
+                                    target_z = current_z + hand_eye_offset[2] + self.spin_z_offset.value()
+                                    
+                                    log_msg = f"🤖 Hand-Eye 오프셋: X={hand_eye_offset[0]:.1f}, Y={hand_eye_offset[1]:.1f}, Z={hand_eye_offset[2]:.1f}"
+                                    print(log_msg)
+                                    self.work_log_signal.emit(log_msg)
+                                else:
+                                    log_msg = f"❌ 간단한 스케일 변환 사용 (Hand-Eye 미적용)"
+                                    print(log_msg)
+                                    self.work_log_signal.emit(log_msg)
+                                    
+                                    # 부호 적용
+                                    sign_x = 1.0 if self.combo_sign_x.currentText() == "+" else -1.0
+                                    sign_y = 1.0 if self.combo_sign_y.currentText() == "+" else -1.0
+                                    
+                                    # 축 스왑 여부 확인
+                                    if self.check_swap_xy.isChecked():
+                                        # X, Y 축 스왑
+                                        target_x = current_x + sign_y * offset_mm_y
+                                        target_y = current_y + sign_x * offset_mm_x
+                                        log_msg = f"🔄 축 스왑 ON: 카메라 X({offset_mm_x:.1f}) → 로봇 Y, 카메라 Y({offset_mm_y:.1f}) → 로봇 X"
+                                    else:
+                                        # 직접 매핑
+                                        target_x = current_x + sign_x * offset_mm_x
+                                        target_y = current_y + sign_y * offset_mm_y
+                                        log_msg = f"🔄 축 스왑 OFF: 카메라 X({offset_mm_x:.1f}) → 로봇 X, 카메라 Y({offset_mm_y:.1f}) → 로봇 Y"
+                                    
+                                    print(log_msg)
+                                    self.work_log_signal.emit(log_msg)
+                                    
+                                    # Z축 오프셋 적용 (카메라와 로봇 높이 차이 보정)
+                                    target_z = current_z + self.spin_z_offset.value()
+                                
+                                # 목표 좌표 저장 (PICKUP에서 사용)
+                                self.aruco_target_coords = [target_x, target_y, target_z, current_r, current_p, current_yaw]
+                                self.aruco_detected = True
+                                self.pickup_step = 0  # 픽업 단계 초기화
+                                self.btn_pickup.setText("🤖 Pickup")  # 버튼 텍스트 초기화
+                                
+                                log_msg = f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                print(log_msg)
+                                self.work_log_signal.emit(log_msg)
+                                
+                                log_msg = f"🤖 [현재 위치] X={current_x:.1f}, Y={current_y:.1f}, Z={current_z:.1f}, R={current_r:.1f}, P={current_p:.1f}, Yaw={current_yaw:.1f}"
+                                print(log_msg)
+                                self.work_log_signal.emit(log_msg)
+                                
+                                log_msg = f"🎯 [목표 위치] X={target_x:.1f}, Y={target_y:.1f}, Z={target_z:.1f}, R={current_r:.1f}, P={current_p:.1f}, Yaw={current_yaw:.1f}"
+                                print(log_msg)
+                                self.work_log_signal.emit(log_msg)
+                                
+                                log_msg = f"📍 [차이] ΔX={target_x - current_x:.1f}, ΔY={target_y - current_y:.1f}, ΔZ={target_z - current_z:.1f}"
+                                print(log_msg)
+                                self.work_log_signal.emit(log_msg)
+                                
+                                log_msg = f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                                 print(log_msg)
                                 self.work_log_signal.emit(log_msg)
                                 
@@ -762,6 +1152,8 @@ class CameraWidget(QWidget):
                                 log_msg = f"❌ 좌표 변환 오류: {e}"
                                 print(log_msg)
                                 self.work_log_signal.emit(log_msg)
+                                import traceback
+                                traceback.print_exc()
                         else:
                             log_msg = "⚠️ 로봇 대시보드 미연결"
                             print(log_msg)
