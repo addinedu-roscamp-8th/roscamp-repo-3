@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>가구 상세 주문 - LOVO</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 상단 네비게이션 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <a href="index.html"><h1>LOVO</h1></a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="furniture.html">가구 주문하기</a></li>
+                <li><a href="materials.html">현재 모든 자재 수량</a></li>
+                <li><a href="cart.html">장바구니 <span id="cart-count" class="cart-badge">0</span></a></li>
+                <li><a href="about.html">ABOUT LOVO</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- 메인 콘텐츠 -->
+    <main class="main-content">
+        <section class="detail-section">
+            <div class="detail-container">
+                <div class="detail-image">
+                    <svg id="furniture-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"></svg>
+                </div>
+                
+                <div class="detail-info">
+                    <h2 id="furniture-name"></h2>
+                    <p id="furniture-description" class="furniture-desc"></p>
+                    
+                    <form id="order-form" class="order-form">
+                        <div id="materials-container"></div>
+                        
+                        <div class="form-group quantity-group">
+                            <label for="total-quantity">총 수량:</label>
+                            <input type="number" id="total-quantity" name="total-quantity" value="1" min="1">
+                        </div>
+                        
+                        <button type="submit" class="submit-button">장바구니에 추가</button>
+                        <a href="furniture.html" class="back-link">← 돌아가기</a>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 푸터 -->
+    <footer class="footer">
+        <p>&copy; 2026 LOVO. All rights reserved.</p>
+    </footer>
+
+    <script src="script.js"></script>
+    <script>
+        // 페이지 로드 시 URL 파라미터에서 가구 타입을 가져와 상세 정보 표시
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const furnitureType = urlParams.get('type');
+            
+            if (furnitureType) {
+                loadFurnitureDetail(furnitureType);
+            }
+        });
+    </script>
+</body>
+</html>

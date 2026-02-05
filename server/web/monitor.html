@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOVO - 로봇 관제</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+    <style>
+        .monitor-container {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        #map-area {
+            background-color: #f8f9fa;
+            border-radius: 20px;
+            position: relative;
+            height: 600px;
+            border: 2px solid #e1e4e8;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.05);
+        }
+
+        .robot-card-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .robot-card {
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid #eee;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+
+        .robot-card h4 {
+            margin: 0 0 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-badge {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: 600;
+        }
+        .status-idle { background-color: #e2e8f0; color: #4a5568; }
+        .status-transporting { background-color: #bee3f8; color: #2b6cb0; }
+        .status-picking { background-color: #fed7d7; color: #c53030; }
+        .status-error { background-color: #e53e3e; color: white; }
+        .status-offline { background-color: #718096; color: white; }
+
+        .robot-marker {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #fff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: all 0.5s ease;
+            font-size: 20px;
+            border: 3px solid #3b82f6;
+            z-index: 10;
+        }
+
+        .robot-marker.arm { border-color: #f59e0b; }
+        .robot-marker.pinky { border-color: #ec4899; }
+        
+        .robot-label {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            <a href="index.html">LOVO</a>
+        </div>
+        <nav>
+            <ul>
+                <li><a href="furniture.html">가구 주문</a></li>
+                <li><a href="monitor.html" class="active">로봇 관제</a></li>
+                <li><a href="materials.html">자재 현황</a></li>
+                <li><a href="index.html#about">소개</a></li>
+            </ul>
+        </nav>
+        <div class="cart-icon" onclick="displayCart()">
+            🛒 <span id="cart-count">0</span>
+        </div>
+    </header>
+
+    <main>
+        <div class="page-header">
+            <h1>실시간 공장 관제</h1>
+            <p>로봇들의 작업 상태와 위치를 실시간으로 모니터링합니다.</p>
+        </div>
+
+        <div class="monitor-container">
+            <div id="map-area">
+                <!-- Grid Background -->
+                <div style="position: absolute; width: 100%; height: 100%; background-image: radial-gradient(#ddd 1px, transparent 1px); background-size: 40px 40px;"></div>
+                
+                <!-- Robots will be inserted here by JS -->
+            </div>
+
+            <div class="robot-card-list" id="robot-list">
+                <!-- Status cards inserted here -->
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            initMonitor();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자재 수량 - LOVO</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 상단 네비게이션 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <a href="index.html"><h1>LOVO</h1></a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="furniture.html">가구 주문하기</a></li>
+                <li><a href="materials.html" class="active">현재 모든 자재 수량</a></li>
+                <li><a href="cart.html">장바구니 <span id="cart-count" class="cart-badge">0</span></a></li>
+                <li><a href="about.html">ABOUT LOVO</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- 메인 콘텐츠 -->
+    <main class="main-content">
+        <section class="materials-section">
+            <h2>현재 모든 자재 수량</h2>
+            <p class="section-subtitle">LOVO의 전체 자재 현황을 확인하세요.</p>
+            
+            <div class="table-responsive">
+                <table class="materials-table">
+                    <thead>
+                        <tr>
+                            <th>자재 이름</th>
+                            <th>현재 재고 수량</th>
+                            <th>단위</th>
+                            <th>상태</th>
+                        </tr>
+                    </thead>
+                    <tbody id="materials-tbody">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- 푸터 -->
+    <footer class="footer">
+        <p>&copy; 2026 LOVO. All rights reserved.</p>
+    </footer>
+
+    <script src="script.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            displayMaterialsTable();
+        });
+    </script>
+</body>
+</html>

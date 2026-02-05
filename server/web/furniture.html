@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>가구 주문하기 - LOVO</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- 상단 네비게이션 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <a href="index.html">
+                    <h1>LOVO</h1>
+                </a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="furniture.html" class="active">가구 주문하기</a></li>
+                <li><a href="materials.html">현재 모든 자재 수량</a></li>
+                <li><a href="cart.html">장바구니 <span id="cart-count" class="cart-badge">0</span></a></li>
+                <li><a href="about.html">ABOUT LOVO</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- 메인 콘텐츠 -->
+    <main class="main-content">
+        <section class="furniture-section">
+            <h2>가구를 선택하세요</h2>
+            <p class="section-subtitle">각 가구를 클릭하여 자재를 선택하고 주문하세요.</p>
+
+            <div class="furniture-grid">
+                <!-- 침대 카드 -->
+                <div class="furniture-card" onclick="goToDetail('bed')">
+                    <div class="furniture-image">
+                        <img src="images/bed.png" alt="침대" style="width: 100%; height: 100%; object-fit: contain;">
+                    </div>
+                    <h3>침대</h3>
+                    <p>편안한 수면을 위한 모듈형 침대</p>
+                </div>
+
+                <!-- 의자 카드 -->
+                <div class="furniture-card" onclick="goToDetail('chair')">
+                    <div class="furniture-image">
+                        <img src="images/chair.png" alt="의자" style="width: 100%; height: 100%; object-fit: contain;">
+                    </div>
+                    <h3>의자</h3>
+                    <p>공간에 맞는 현대적인 모듈형 의자</p>
+                </div>
+
+                <!-- 책상 카드 -->
+                <div class="furniture-card" onclick="goToDetail('desk')">
+                    <div class="furniture-image">
+                        <img src="images/desk.png" alt="책상" style="width: 100%; height: 100%; object-fit: contain;">
+                    </div>
+                    <h3>책상</h3>
+                    <p>작업 공간을 위한 기능적 책상</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 푸터 -->
+    <footer class="footer">
+        <p>&copy; 2026 LOVO. All rights reserved.</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
