@@ -1,16 +1,17 @@
 """탭 모듈"""
-from .main_tab import MainTab
-from .manual_tab import ManualTab
-from .monitoring_tab import MonitoringTab
-from .communication_tab import CommunicationTab
-from .log_tab import LogTab
-from .ros_monitor_tab import RosMonitorTab
+from .tab01_main import MainTab
+from .tab02_manual import ManualTab, RobotDashboardWidget
+from .tab03_monitoring import MonitoringTab
+from .tab04_ros_monitor import RosMonitorTab
+from .tab05_communication import CommunicationTab
+from .tab06_log import LogTab
 
 __all__ = [
     'MainTab',
-    'ManualTab', 
+    'ManualTab',
+    'RobotDashboardWidget',
     'MonitoringTab',
+    'RosMonitorTab',
     'CommunicationTab',
-    'LogTab',
-    'RosMonitorTab'
+    'LogTab'
 ]

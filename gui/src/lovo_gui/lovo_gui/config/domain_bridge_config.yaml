@@ -1,7 +1,8 @@
 name: lovo_robot_bridge
 
 topics:
-  # Domain 70 → 60 (PC → Robot1)
+  # Domain 70 → 60 (PC → Robot1)###########################################
+##########################################################################
   /robot1/target_angles:
     type: std_msgs/msg/Float64MultiArray
     from_domain: 70
@@ -51,8 +52,9 @@ topics:
     from_domain: 70
     to_domain: 60
     remap: /goal_pose
+##########################################################################
 
-  # Domain 70 → 61 (PC → Robot2)
+  # Domain 70 → 61 (PC → Robot2)###########################################
   /robot2/target_angles:
     type: std_msgs/msg/Float64MultiArray
     from_domain: 70
@@ -101,3 +103,6 @@ topics:
     from_domain: 70
     to_domain: 61
     remap: /goal_pose
+
+###########################################################################
+

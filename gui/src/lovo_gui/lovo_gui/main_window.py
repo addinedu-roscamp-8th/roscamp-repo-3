@@ -9,18 +9,18 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent, QScreen
 
-from lovo_gui.utils import ConfigManager, CommunicationManager
+from lovo_gui.tabs.tab05_communication import RobotSettings, CommunicationManager
 from lovo_gui.constants import (
     WINDOW_WIDTH, WINDOW_HEIGHT, SIDEBAR_WIDTH, SIDEBAR_BUTTON_HEIGHT,
     STYLE_BUTTON_GREEN, STYLE_BUTTON_RED, STYLE_BUTTON_YELLOW, STYLE_BUTTON_GRAY,
     COLOR_DARK_BG, TAB_HEIGHT, TAB_WIDTH
 )
-from lovo_gui.tabs.main_tab import MainTab
-from lovo_gui.tabs.manual_tab import ManualTab
-from lovo_gui.tabs.monitoring_tab import MonitoringTab
-from lovo_gui.tabs.communication_tab import CommunicationTab
-from lovo_gui.tabs.log_tab import LogTab
-from lovo_gui.tabs.ros_monitor_tab import RosMonitorTab
+from lovo_gui.tabs.tab01_main import MainTab
+from lovo_gui.tabs.tab02_manual import ManualTab
+from lovo_gui.tabs.tab03_monitoring import MonitoringTab
+from lovo_gui.tabs.tab04_ros_monitor import RosMonitorTab
+from lovo_gui.tabs.tab05_communication import CommunicationTab
+from lovo_gui.tabs.tab06_log import LogTab
 
 #######
 
@@ -31,7 +31,7 @@ class MyMainWindow(QMainWindow):
         super().__init__()
         
         # 설정 및 통신 매니저 초기화
-        self.config_manager = ConfigManager("config/robotname.json")
+        self.robot_settings = RobotSettings("config/robotname.json")
         self.comm_manager = CommunicationManager()
         
         self.setWindowTitle("Lovo 제어 시스템")
@@ -120,11 +120,11 @@ class MyMainWindow(QMainWindow):
         )
         
         # Main 탭
-        self.main_tab = MainTab(self.config_manager)
+        self.main_tab = MainTab(self.robot_settings)
         tabs.addTab(self.main_tab, "Main")
         
         # Manual 탭
-        self.manual_tab = ManualTab(self.config_manager)
+        self.manual_tab = ManualTab(self.robot_settings)
         tabs.addTab(self.manual_tab, "Manual")
         
         # Monitoring 탭
@@ -132,7 +132,7 @@ class MyMainWindow(QMainWindow):
         tabs.addTab(self.monitoring_tab, "Monitoring")
         
         # Communication 탭
-        self.communication_tab = CommunicationTab(self.config_manager, self.comm_manager)
+        self.communication_tab = CommunicationTab(self.robot_settings, self.comm_manager)
         tabs.addTab(self.communication_tab, "Communication")
         
         # ROS Monitor 탭
