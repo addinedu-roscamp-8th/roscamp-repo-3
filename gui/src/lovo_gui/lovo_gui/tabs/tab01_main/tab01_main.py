@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
     QGridLayout, QPushButton, QSizePolicy
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QImage, QPixmap
+import cv2
 from lovo_gui.constants import MAIN_SYSTEM_MAP, MAIN_ORDER_LOG, MAIN_ROBOT_GRID, MAIN_CAMERA_VIEW
 
 
@@ -221,9 +223,64 @@ class MainTab(QWidget):
         )
         self.camera_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.camera_view_label)
+
+        # 현재 연결된 카메라 컨트롤러 참조 (frame_updated 연결/해제 관리)
+        self._current_camera_controller = None
+        self._camera_frame_slot = None
     
     def show_camera_view(self, robot):
         """카메라 뷰 표시"""
         robot_name = robot.get("name", "로봇")
         self.camera_title.setText(f"{robot_name} - 카메라 뷰")
         self.camera_view_label.setText("카메라 스트리밍 대기 중...")
+
+        # 윈도우 레벨에서 CommunicationTab의 CameraController를 가져와 프레임 업데이트를 연결
+        try:
+            win = self.window()
+            cam_ctrl = None
+            if hasattr(win, 'communication_tab'):
+                # robot dict에는 id가 있어야 함
+                robot_id = robot.get('id')
+                cam_ctrl = win.communication_tab.get_camera_controller(robot_id)
+
+            # 이전 컨트롤러와 연결되어 있으면 해제
+            if hasattr(self, '_current_camera_controller') and self._current_camera_controller:
+                try:
+                    if self._camera_frame_slot and self._current_camera_controller:
+                        self._current_camera_controller.frame_updated.disconnect(self._camera_frame_slot)
+                except Exception:
+                    pass
+                self._current_camera_controller = None
+                self._camera_frame_slot = None
+
+            if cam_ctrl is None:
+                self.camera_view_label.setText("카메라가 연결되어 있지 않습니다")
+                return
+
+            # 슬롯 생성 및 연결
+            def _on_frame(frame):
+                try:
+                    # OpenCV BGR -> RGB
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w, ch = rgb.shape
+                    bytes_per_line = ch * w
+                    qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+                    pix = QPixmap.fromImage(qimg).scaled(
+                        self.camera_view_label.width(),
+                        self.camera_view_label.height(),
+                        Qt.AspectRatioMode.KeepAspectRatio
+                    )
+                    self.camera_view_label.setPixmap(pix)
+                except Exception:
+                    pass
+
+            # 연결 저장 및 시그널 연결
+            self._camera_frame_slot = _on_frame
+            cam_ctrl.frame_updated.connect(self._camera_frame_slot)
+            self._current_camera_controller = cam_ctrl
+
+            # 상태 텍스트 제거
+            self.camera_view_label.setText("")
+        except Exception:
+            # 안전하게 실패
+            self.camera_view_label.setText("카메라 표시 실패")
