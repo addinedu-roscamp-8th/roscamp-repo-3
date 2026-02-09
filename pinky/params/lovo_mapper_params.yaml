@@ -1,0 +1,94 @@
+slam_toolbox:
+  ros__parameters:
+
+    # --------------------------------------------------------------------
+    # 1. Plugin & Solver Settings (기본값 유지)
+    # --------------------------------------------------------------------
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    # --------------------------------------------------------------------
+    # 2. ROS & System Performance (렉 방지 및 1cm 해상도 사수)
+    # --------------------------------------------------------------------
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+    mode: mapping 
+
+    debug_logging: false
+    
+    # [핵심] 고해상도 처리를 위한 데이터 다이어트
+    throttle_scans: 2           # 스캔 데이터 2개 중 1개만 처리 (CPU 부하 50% 감소)
+    transform_publish_period: 0.05 
+    map_update_interval: 5.0    # 맵 그리기 주기를 5초로 늦춰 RViz 멈춤 방지
+    
+    # [요청사항 반영] 초정밀 1cm 해상도
+    resolution: 0.01
+    
+    # [핵심] 연산 주기 강제 제한 (천천히 정확하게)
+    minimum_time_interval: 1.0  # SLAM 연산을 1초에 1번만 수행 (버벅임 해결)
+    transform_timeout: 0.4
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000 
+    enable_interactive_mode: true
+
+    # --------------------------------------------------------------------
+    # 3. General Mapping Behavior (좁은 맵 최적화)
+    # --------------------------------------------------------------------
+    use_scan_matching: true
+    use_scan_barycenter: true
+    
+    # 미세 노이즈 무시 & 확실한 이동만 반영
+    minimum_travel_distance: 0.05  
+    minimum_travel_heading: 0.2    # 제자리 미세 떨림 무시
+    
+    # 센서 범위 제한 (100x200cm 환경 맞춤)
+    max_laser_range: 2.2                # 맵 전체 길이 커버
+    scan_buffer_maximum_scan_distance: 2.2 
+    scan_buffer_size: 7                 # 버퍼 크기를 줄여 부정확한 과거 데이터 배제
+    
+    # 매칭 정밀도 강화
+    link_match_minimum_response_fine: 0.25 
+    link_scan_maximum_distance: 1.2     # 가까운 거리의 정확한 데이터 위주로 매칭
+
+    # --------------------------------------------------------------------
+    # 4. Loop Closure (맵 겹침 방지)
+    # --------------------------------------------------------------------
+    do_loop_closing: true
+    loop_search_maximum_distance: 2.0   # 맵 크기(2m)에 딱 맞춤
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 1.0 # 오차 허용 범위 축소 (엄격하게)
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.55  # 확실할 때만 루프 닫음
+
+    # --------------------------------------------------------------------
+    # 5. Correlation Parameters (벽 두께 얇게 만들기)
+    # --------------------------------------------------------------------
+    correlation_search_space_dimension: 0.2    # 탐색 범위 축소 (연산 속도 향상)
+    correlation_search_space_resolution: 0.01
+    
+    # [핵심] 벽이 번지는 현상을 억제하여 날카로운 직선 구현
+    correlation_search_space_smear_deviation: 0.03 
+
+    # Loop Closure 상세 설정
+    loop_search_space_dimension: 4.0
+    loop_search_space_resolution: 0.02
+    loop_search_space_smear_deviation: 0.03
+
+    # --------------------------------------------------------------------
+    # 6. Scan Matcher (오도메트리 보정)
+    # --------------------------------------------------------------------
+    distance_variance_penalty: 0.3  # 오도메트리 신뢰도 소폭 상향
+    angle_variance_penalty: 0.8
+
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
