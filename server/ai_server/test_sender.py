@@ -1,3 +1,4 @@
+import logging
 import cv2
 import socket
 import numpy as np
@@ -11,12 +12,12 @@ def main():
     # Create test image
     cap = cv2.VideoCapture(0) # Use webcam if available, else static
     if not cap.isOpened():
-        print("Webcam not found, using static image simulation.")
+        logging.debug("Webcam not found, using static image simulation.")
         img = np.zeros((480, 640, 3), dtype=np.uint8)
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     
-    print(f"Simulating Robot 2: Sending to {SERVER_IP}:{UDP_PORT}")
+    logging.debug(f"Simulating Robot 2: Sending to {SERVER_IP}:{UDP_PORT}")
     
     try:
         while True:
@@ -35,13 +36,13 @@ def main():
             
             # Send (UDP packet size limit is ~65KB, typical JPEG is fine)
             if len(data) > 65507:
-                print("Frame too large!")
+                logging.debug("Frame too large!")
             else:
                 sock.sendto(data, (SERVER_IP, UDP_PORT))
             
             time.sleep(0.05) # 20 FPS
     except KeyboardInterrupt:
-        print("Stopped.")
+        logging.debug("Stopped.")
     finally:
         cap.release()
         sock.close()

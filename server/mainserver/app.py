@@ -133,7 +133,8 @@ def create_order(order: OrderCreate):
                 )
                 order_ids.append(cursor.lastrowid)
             else:
-                print(f"No furniture found for category {cat}")
+                import logging
+                logging.debug(f"No furniture found for category {cat}")
 
         conn.commit()
         return {'message': 'Order created successfully', 'orderIds': order_ids}

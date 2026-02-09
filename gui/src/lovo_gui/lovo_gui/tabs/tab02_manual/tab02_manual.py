@@ -93,14 +93,20 @@ class ManualTab(QWidget):
             controller = communication_tab.get_robot_controller(robot_id)
             if controller:
                 dashboard.set_controller(controller)
-                print(f"✅ {robot_id} 컨트롤러 연결됨")
+                # 연결된 컨트롤러의 로그를 대시보드(매뉴얼 탭)의 작업 로그로 전달
+                if hasattr(controller, 'controller_log') and hasattr(dashboard, 'work_log_signal'):
+                    try:
+                        controller.controller_log.connect(dashboard.work_log_signal.emit)
+                    except Exception:
+                        pass
+                # 컨트롤러 연결 메시지는 GUI 로그로 처리됨; 콘솔 출력 제거
             
             # 작업 로그 signal 연결 (컨트롤러 없어도 연결)
             if hasattr(dashboard, 'work_log_signal'):
                 dashboard.work_log_signal.connect(
                     lambda msg, r_id=robot_id: self.add_work_log(r_id, msg)
                 )
-                print(f"✅ {robot_id} 작업 로그 signal 연결됨")
+                # 작업 로그 시그널 연결 확인은 GUI 로그에서 확인 가능합니다
             
             # 카메라 컨트롤러 연결
             camera_controller = communication_tab.get_camera_controller(robot_id)

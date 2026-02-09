@@ -161,7 +161,13 @@ class MyMainWindow(QMainWindow):
                     if (hasattr(dashboard, 'pose_memory') and 
                         hasattr(dashboard, 'config_manager') and 
                         dashboard.config_manager is not None):
-                        for slot in range(1, 6):
+                        # 저장 슬롯은 대시보드 인스턴스에 따라 가변적일 수 있으므로
+                        # 대시보드의 pose_memory 키를 사용하여 모든 슬롯을 저장합니다.
+                        for slot_key in list(dashboard.pose_memory.keys()):
+                            try:
+                                slot = int(slot_key)
+                            except Exception:
+                                continue
                             if slot in dashboard.pose_memory:
                                 dashboard.config_manager.save_pose_memory(
                                     dashboard.robot_name,

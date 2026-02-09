@@ -4,8 +4,7 @@ install/
 log/
 
 # Robot configuration
-src/lovo_gui/lovo_gui/config/robotname.json
-src/lovo_gui/lovo_gui/config/pose_memory/
+## Note: specific config files are tracked in repo; do not ignore them here.
 
 # Python
 __pycache__/

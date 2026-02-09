@@ -8,6 +8,7 @@ import socket
 import threading
 import cv2
 import json
+import logging
 from collections import deque
 from ultralytics import YOLO
 
@@ -72,7 +73,7 @@ class RobotManager:
         # Load Models
         self.model_a = YOLO("models/yolov8n.pt")      # 상차/하차용
         self.model_b = YOLO("models/yolov8n-seg.pt")  # 핑키 세그멘테이션용
-        print("YOLO Models loaded successfully.")
+        logging.debug("YOLO Models loaded successfully.")
 
     def get_robot(self, robot_id) -> Optional[RobotState]:
         return self.robots.get(robot_id)
@@ -87,9 +88,10 @@ def udp_receiver_task(robot_state: RobotState):
     try:
         sock.bind(("0.0.0.0", robot_state.port))
         sock.settimeout(1.0)
-        print(f"Receiver started for {robot_state.robot_id} on port {robot_state.port}")
+        logging.debug(f"Receiver started for {robot_state.robot_id} on port {robot_state.port}")
     except Exception as e:
-        print(f"Error binding port {robot_state.port} for {robot_state.robot_id}: {e}")
+        logging.debug(f"Error binding port {robot_state.port} for {robot_state.robot_id}: {e}")
+        return
         return
 
     while True:
@@ -107,7 +109,7 @@ def udp_receiver_task(robot_state: RobotState):
         except socket.timeout:
             continue
         except Exception as e:
-            print(f"UDP Error ({robot_state.robot_id}): {e}")
+            logging.debug(f"UDP Error ({robot_state.robot_id}): {e}")
 
 # --- Inference Worker Task ---
 def inference_worker_task():
@@ -195,12 +197,12 @@ def inference_worker_task():
                             msg_json = json.dumps(obs_msg).encode('utf-8')
                             broadcast_sock.sendto(msg_json, (state.last_addr, target_port))
                             if state.seq_counter % 100 == 1:
-                                print(f"Broadcast sent to {robot_id} ({state.last_addr}:{target_port})")
+                                logging.debug(f"Broadcast sent to {robot_id} ({state.last_addr}:{target_port})")
                         except Exception as e:
-                            print(f"Broadcast Error ({robot_id}): {e}")
+                            logging.debug(f"Broadcast Error ({robot_id}): {e}")
 
                 except Exception as e:
-                    print(f"Inference Error on {robot_id}: {e}")
+                    logging.debug(f"Inference Error on {robot_id}: {e}")
                     processed_frame = frame_to_process.copy()
 
                 with state.lock:

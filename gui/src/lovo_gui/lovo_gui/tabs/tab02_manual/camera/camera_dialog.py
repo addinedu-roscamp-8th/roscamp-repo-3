@@ -216,7 +216,7 @@ class CameraWidget(QWidget):
         self.btn_aruco = QPushButton("📌 ArUco")
         self.btn_aruco.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_aruco.setEnabled(False)
-        self.btn_aruco.clicked.connect(self._test_aruco_step_by_step)
+        # ArUco UI removed
         btn_row2.addWidget(self.btn_aruco)
         
         btn_row2.addStretch()
@@ -244,7 +244,6 @@ class CameraWidget(QWidget):
         toggle_layout.addWidget(self.radio_show_coord)
         
         toggle_layout.addStretch()
-        layout.addLayout(toggle_layout)
         
         # ArUco 파라미터 설정 섹션 (640px 너비 맞춤)
         param_group = QGroupBox("🔧 ArUco 감지 파라미터")
@@ -323,7 +322,6 @@ class CameraWidget(QWidget):
         
         param_group.setLayout(param_layout)
         self.aruco_group = param_group  # 참조 저장
-        layout.addWidget(param_group)
         
         # 좌표 변환 파라미터 그룹
         coord_group = QGroupBox("📐 좌표 변환 파라미터")
@@ -402,7 +400,6 @@ class CameraWidget(QWidget):
         
         coord_group.setLayout(coord_layout)
         self.coord_group = coord_group  # 참조 저장
-        layout.addWidget(coord_group)
         
         # 초기에는 ArUco 파라미터만 표시 (라디오 버튼 기본값과 일치)
         self.coord_group.setVisible(False)

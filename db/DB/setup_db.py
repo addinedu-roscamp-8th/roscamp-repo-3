@@ -2,19 +2,20 @@ import getpass
 import os
 import subprocess
 import sys
+import logging
 
 def main():
-    print("=== Factory System Database Setup ===")
-    print("The agent could not access the database automatically.")
-    print("This script will help you set up the 'factory_system' database from 'sf.sql'.")
-    print("")
+    logging.debug("=== Factory System Database Setup ===")
+    logging.debug("The agent could not access the database automatically.")
+    logging.debug("This script will help you set up the 'factory_system' database from 'sf.sql'.")
+    logging.debug("")
 
     # 1. Get credentials
     db_user = input("Enter MySQL User (default: root): ").strip() or "root"
     db_pass = getpass.getpass(f"Enter password for '{db_user}': ")
 
     # 2. Check connection and create DB
-    print(f"\n[INFO] Connecting to MySQL as '{db_user}'...")
+    logging.debug(f"\n[INFO] Connecting to MySQL as '{db_user}'...")
     
     # We use mysql command line tool for simplicity and robustness with .sql files
     # Construct command to create DB
@@ -42,30 +43,30 @@ def main():
 
         # Create DB
         subprocess.run(base_cmd + ["-e", "CREATE DATABASE IF NOT EXISTS factory_system DEFAULT CHARACTER SET utf8mb4;"], env=env, check=True)
-        print("[SUCCESS] Database 'factory_system' created (or already exists).")
+        logging.debug("[SUCCESS] Database 'factory_system' created (or already exists).")
 
         # 3. Read and execute sf.sql
         sql_file = "sf.sql"
         if not os.path.exists(sql_file):
-            print(f"[ERROR] '{sql_file}' not found in current directory.")
+            logging.debug(f"[ERROR] '{sql_file}' not found in current directory.")
             sys.exit(1)
 
-        print(f"[INFO] Importing '{sql_file}' into 'factory_system'...")
+        logging.debug(f"[INFO] Importing '{sql_file}' into 'factory_system'...")
         
         # Use shell redirection style via python file opening
         with open(sql_file, 'r') as f:
             # We enforce using factory_system
             subprocess.run(base_cmd + ["factory_system"], env=env, stdin=f, check=True)
         
-        print("\n[SUCCESS] Database import complete!")
-        print("You can now verify with: mysql -u root -p -D factory_system -e 'SHOW TABLES;'")
+        logging.debug("\n[SUCCESS] Database import complete!")
+        logging.debug("You can now verify with: mysql -u root -p -D factory_system -e 'SHOW TABLES;'")
 
     except subprocess.CalledProcessError as e:
-        print(f"\n[ERROR] Command failed with exit code {e.returncode}.")
-        print("Please check your password and MySQL installation.")
+        logging.debug(f"\n[ERROR] Command failed with exit code {e.returncode}.")
+        logging.debug("Please check your password and MySQL installation.")
         sys.exit(e.returncode)
     except Exception as e:
-        print(f"\n[ERROR] Unexpected error: {e}")
+        logging.debug(f"\n[ERROR] Unexpected error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

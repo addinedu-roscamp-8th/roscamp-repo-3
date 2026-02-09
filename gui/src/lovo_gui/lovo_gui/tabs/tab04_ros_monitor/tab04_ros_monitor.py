@@ -282,8 +282,13 @@ class RosMonitorTab(QWidget):
         robot_domain = robot_data.get('domain', 0)
         
         if '로봇팔' in robot_name:
-            # domain 기반으로 robot1, robot2 결정 (61=robot1, 60=robot2)
-            display_id = 'robot1' if robot_domain == 61 else 'robot2'
+            # domain 기반으로 robot1, robot2 결정 (60=robot1, 61=robot2)
+            if robot_domain == 60:
+                display_id = 'robot1'
+            elif robot_domain == 61:
+                display_id = 'robot2'
+            else:
+                display_id = f"robot{robot_domain}"
             prefix = f"/{display_id}"
             topics = [
                 (f'{prefix}/current_angles', 'Float64MultiArray', '0'),

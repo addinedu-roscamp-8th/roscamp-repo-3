@@ -17,6 +17,7 @@ class RobotArmController(Node, QObject):
     pose_updated = pyqtSignal(list)        # 좌표 업데이트
     coords_updated = pyqtSignal(list)      # 현재 좌표 업데이트
     connection_changed = pyqtSignal(bool)  # 연결 상태 변경
+    controller_log = pyqtSignal(str)       # controller 로그 메시지 (GUI로 전달)
     
     def __init__(self, robot_name, robot_domain, context=None):
         Node.__init__(self, f'robot_arm_controller_{robot_domain}', context=context)
@@ -128,9 +129,16 @@ class RobotArmController(Node, QObject):
         """좌표 명령 전송"""
         msg = Float64MultiArray()
         msg.data = [float(c) for c in coords]
-        print(f"[RobotController] publish_coords: {msg.data}")
+        # Emit GUI-friendly log instead of printing to console
+        try:
+            self.controller_log.emit(f"[RobotController] publish_coords: {msg.data}")
+        except Exception:
+            pass
         self.pub_target_coords.publish(msg)
-        print(f"[RobotController] 토픽 발행 완료: {self.pub_target_coords.topic_name}")
+        try:
+            self.controller_log.emit(f"[RobotController] 토픽 발행 완료: {self.pub_target_coords.topic_name}")
+        except Exception:
+            pass
     
     def send_servo(self, on):
         """서보 ON/OFF"""

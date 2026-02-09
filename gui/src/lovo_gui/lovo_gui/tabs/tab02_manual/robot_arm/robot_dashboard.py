@@ -21,16 +21,16 @@ MEMORY_SLOT_COUNT = 8  # 메모리 슬롯 개수 (P1~P5, 필요시 8로 변경)
 
 # --- UI Widths (px) ---
 AXIS_LABEL_WIDTH = 60      # 축 라벨 너비 (Axis column)
-JOG_ZONE_WIDTH = 60       # Jog 버튼 영역 너비 (그리드의 플레이스홀더 너비)
+JOG_ZONE_WIDTH = 0       # Jog 버튼 영역 너비 (그리드의 플레이스홀더 너비)
 TARGET_TO_P_WIDTH = 70     # Target, Actual, Error, P1..Pn 공통 너비
 ABS_INPUT_WIDTH = 70       # 절대 좌표/각도 입력 너비
 DELTA_INPUT_WIDTH = 40     # Jog delta 입력 너비
-MEM_BUTTON_WIDTH = 65      # 메모리 버튼 너비
+MEM_BUTTON_WIDTH = 75      # 메모리 버튼 너비
 MOVE_BTN_WIDTH = 120       # 큰 Move 버튼 너비
 
 # --- UI Heights (px) ---
 INPUT_HEIGHT = 32          # 일반 입력창 높이
-BUTTON_HEIGHT = 28         # 일반 버튼 높이
+BUTTON_HEIGHT = 32         # 일반 버튼 높이
 MOVE_BTN_HEIGHT = 45       # 큰 Move 버튼 높이
 
 # --- 기타 ---
@@ -66,7 +66,12 @@ class RobotDashboardWidget(QWidget):
         self.use_moveit = False
 
         # Pose memory manager 초기화
-        self.pose_memory_manager = PoseMemoryManager()
+        self.pose_memory_manager = PoseMemoryManager(slot_count=MEMORY_SLOT_COUNT)
+        # 연결된 GUI 로그로 메시지를 보낼 수 있도록 로거를 설정
+        try:
+            self.pose_memory_manager.set_logger(self.work_log_signal.emit)
+        except Exception:
+            pass
 
         # UI 초기화
         self._setup_ui()
@@ -134,13 +139,13 @@ class RobotDashboardWidget(QWidget):
     def _setup_grid_alignment(self, layout):
         """그리드 정렬 설정"""
         layout.setColumnMinimumWidth(0, AXIS_LABEL_WIDTH)
-        layout.setColumnMinimumWidth(1, UI_SPACING)
-        layout.setColumnMinimumWidth(2, TARGET_TO_P_WIDTH)
-        # Actual / Error / P columns
+        # Target column
+        layout.setColumnMinimumWidth(1, TARGET_TO_P_WIDTH)
+        # Actual / Error columns
+        layout.setColumnMinimumWidth(2, DATA_COL_WIDTH)
         layout.setColumnMinimumWidth(3, DATA_COL_WIDTH)
-        layout.setColumnMinimumWidth(4, DATA_COL_WIDTH)
-        # P1..Pn columns start at index 5
-        for col in range(5, 5 + MEMORY_SLOT_COUNT):
+        # P1..Pn columns start at index 4
+        for col in range(4, 4 + MEMORY_SLOT_COUNT):
             layout.setColumnMinimumWidth(col, DATA_COL_WIDTH)
         # ...existing code...
     
@@ -167,6 +172,7 @@ class RobotDashboardWidget(QWidget):
             ("✓ Servo ON", self._servo_on),
             ("✗ Servo OFF", self._servo_off),
             ("🏠 HOME", self._go_home),
+            ("✊ GRIP", self._grip),
             ("🖐️ UNGRIP", self._ungrip)
         ]
         for text, func in controls:
@@ -213,10 +219,24 @@ class RobotDashboardWidget(QWidget):
         self._setup_grid_alignment(c_grid)
         
         # 헤더
-        # Hide the grid header for the Jog column (controls moved to Jog Zone)
-        c_headers = ["Axis", "", "Target", "Actual", "Error"] + [f"P{i}" for i in range(1, MEMORY_SLOT_COUNT+1)]
-        for col, text in enumerate(c_headers):
-            c_grid.addWidget(QLabel(text), 0, col, Qt.AlignmentFlag.AlignCenter)
+        # Create header labels and keep references for P columns so we can
+        # update names loaded from CSV (Label column)
+        base_headers = ["Axis", "Target", "Actual", "Error"]
+        self.p_header_labels = {}
+        for col, text in enumerate(base_headers):
+            hdr = QLabel(text)
+            hdr.setFont(self.main_font)
+            hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            c_grid.addWidget(hdr, 0, col, Qt.AlignmentFlag.AlignCenter)
+
+        # Create P headers with default names (P1..Pn) and store QLabel refs
+        for idx in range(1, MEMORY_SLOT_COUNT + 1):
+            pcol = 3 + idx  # columns: 0..3 used, P1 starts at 4 (3+1)
+            hdr = QLabel(f"P{idx}")
+            hdr.setFont(self.main_font)
+            hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            c_grid.addWidget(hdr, 0, pcol, Qt.AlignmentFlag.AlignCenter)
+            self.p_header_labels[idx] = hdr
 
         axes = ["X(mm)", "Y(mm)", "Z(mm)", "R(°)", "P(°)", "Y(°)"]
         for i in range(6):
@@ -232,12 +252,7 @@ class RobotDashboardWidget(QWidget):
             )
             c_grid.addWidget(axis_lbl, row, 0)
 
-            # Jog 컨트롤은 Jog Zone 그룹으로 이동됨. 여기서는 자리만 확보(플레이스홀더)
-            ph = QWidget()
-            ph.setFixedWidth(JOG_ZONE_WIDTH)
-            c_grid.addWidget(ph, row, 1)
-
-            # Target 입력 필드 (읽기 전용으로 변경)
+            # Target 입력 필드 (읽기 전용)
             target_input = QLineEdit("0.0")
             target_input.setFixedWidth(TARGET_TO_P_WIDTH)
             target_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -247,22 +262,22 @@ class RobotDashboardWidget(QWidget):
                 "border: 2px solid #BDBDBD; border-radius: 3px; padding: 2px;"
             )
             self.pose_target_inputs[i] = target_input
-            c_grid.addWidget(target_input, row, 2)
+            c_grid.addWidget(target_input, row, 1)
 
             actual_lbl = self._create_label("0.0", "#757575", DATA_COL_WIDTH)
             self.pose_actual_labels[i] = actual_lbl
-            c_grid.addWidget(actual_lbl, row, 3)
+            c_grid.addWidget(actual_lbl, row, 2)
 
             # Error
             err_lbl = self._create_label("0.0", "#f44336", DATA_COL_WIDTH)
             self.pose_error_labels[i] = err_lbl
-            c_grid.addWidget(err_lbl, row, 4)
+            c_grid.addWidget(err_lbl, row, 3)
 
             # 메모리 Pos1~N
             for m_idx in range(1, MEMORY_SLOT_COUNT+1):
                 mem_lbl = self._create_label("---", "#555", DATA_COL_WIDTH)
                 self.pose_mem_labels[m_idx][i] = mem_lbl
-                c_grid.addWidget(mem_lbl, row, m_idx + 4)
+                c_grid.addWidget(mem_lbl, row, m_idx + 3)
 
         # 좌표 메모리 저장/이동 버튼 라인
         for m_idx in range(1, MEMORY_SLOT_COUNT+1):
@@ -282,7 +297,7 @@ class RobotDashboardWidget(QWidget):
 
             btn_vbox.addWidget(ps_btn)
             btn_vbox.addWidget(pm_btn)
-            c_grid.addLayout(btn_vbox, 7, m_idx + 4)
+            c_grid.addLayout(btn_vbox, 7, m_idx + 3)
         
         main_layout.addLayout(c_grid)
         
@@ -619,7 +634,13 @@ class RobotDashboardWidget(QWidget):
     
     def load_pose_memory(self):
         """저장된 좌표 메모리 로드"""
-        saved_memory = self.pose_memory_manager.load(self.robot_name)
+        saved_memory, labels = self.pose_memory_manager.load_with_labels(self.robot_name)
+        try:
+            csv_path = self.pose_memory_manager._get_csv_path(self.robot_name)
+            self.work_log_signal.emit(f"🔎 [{self.robot_name}] CSV path: {csv_path}")
+            self.work_log_signal.emit(f"🔎 [{self.robot_name}] labels: {labels}")
+        except Exception:
+            pass
         for slot in range(1, MEMORY_SLOT_COUNT+1):
             slot_str = str(slot)
             if slot_str in saved_memory:
@@ -628,6 +649,14 @@ class RobotDashboardWidget(QWidget):
                 if all(self.pose_mem_labels[slot]):
                     for i in range(6):
                         self.pose_mem_labels[slot][i].setText(f"{self.pose_memory[slot][i]:.1f}")
+
+            # Update header label for this P slot if available
+            if hasattr(self, 'p_header_labels') and slot in labels:
+                try:
+                    self.p_header_labels[slot].setText(labels[slot])
+                except Exception:
+                    pass
+
         self.work_log_signal.emit(f"📂 {self.robot_name} 좌표 메모리 로드 완료")
     
     def _move_pose_memory(self, slot):
