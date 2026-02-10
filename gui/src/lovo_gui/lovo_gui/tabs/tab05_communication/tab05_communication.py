@@ -85,7 +85,12 @@ class CommunicationTab(QWidget):
             
             # 모든 로봇에 CameraController 생성 (UDP 포트: 9510, 9520, 9530, 9540, 9550)
             camera_port = 9510 + (idx * 10)
-            camera_controller = CameraController(robot_ip, camera_port)
+            # Pass the robot controller reference if it exists so CameraController
+            # can publish to ROS via the RobotArmController
+            camera_controller = CameraController(
+                robot_ip, camera_port,
+                robot_controller=self.robot_controllers.get(robot_id)
+            )
             self.camera_controllers[robot_id] = camera_controller
             
             self.comm_manager.log(f"{robot_name} 카메라 컨트롤러 초기화 완료 (UDP Port: {camera_port})")

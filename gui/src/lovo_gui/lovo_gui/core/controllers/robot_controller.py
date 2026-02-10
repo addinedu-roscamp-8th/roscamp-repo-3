@@ -4,7 +4,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray, Bool, Int32
-from geometry_msgs.msg import Pose
+from sensor_msgs.msg import JointState, Image, CompressedImage
 from PyQt6.QtCore import QObject, pyqtSignal
 import time
 
@@ -15,6 +15,7 @@ class RobotArmController(Node, QObject):
     # PyQt Signals
     angles_updated = pyqtSignal(list)      # 각도 업데이트
     pose_updated = pyqtSignal(list)        # 좌표 업데이트
+    # Keep coords_updated for backward compatibility with UI (build) code
     coords_updated = pyqtSignal(list)      # 현재 좌표 업데이트
     connection_changed = pyqtSignal(bool)  # 연결 상태 변경
     controller_log = pyqtSignal(str)       # controller 로그 메시지 (GUI로 전달)
@@ -38,37 +39,10 @@ class RobotArmController(Node, QObject):
         self.last_encoder_time = time.time()
         self.connection_timeout = 1.0
         
-        # Publishers (domain_bridge가 robot_id를 prefix로 사용)
-        self.pub_angles = self.create_publisher(
-            Float64MultiArray, f'/{robot_id}/target_angles', 10
-        )
-        self.pub_servo = self.create_publisher(
-            Bool, f'/{robot_id}/servo_status', 10
-        )
-        self.pub_gripper = self.create_publisher(
-            Int32, f'/{robot_id}/gripper_control', 10
-        )
-        self.pub_target_coords = self.create_publisher(
-            Float64MultiArray, f'/{robot_id}/target_coords', 10
-        )
-        self.pub_pose_target = self.create_publisher(
-            Pose, f'/{robot_id}/goal_pose', 10
-        )
-        
-        # Subscribers (domain_bridge를 통해 전달받음)
-        self.sub_current = self.create_subscription(
-            Float64MultiArray, f'/{robot_id}/current_angles', 
-            self.receive_angles_callback, 10
-        )
-        self.sub_pose = self.create_subscription(
-            Pose, f'/{robot_id}/current_pose', 
-            self.pose_callback, 10
-        )
-        self.sub_current_coords = self.create_subscription(
-            Float64MultiArray, f'/{robot_id}/current_coords',
-            self.coords_callback, 10
-        )
-        
+        # Initialize publishers/subscribers centrally
+        self._init_topics(robot_id)
+       
+       
         # 연결 상태 체크 타이머
         self.connection_timer = self.create_timer(
             0.5, self.check_connection
@@ -78,35 +52,35 @@ class RobotArmController(Node, QObject):
             f'RobotArmController initialized for {robot_name} (Domain: {robot_domain})'
         )
     
-    def receive_angles_callback(self, msg):
+    def joint_states_callback(self, msg):
         """각도 데이터 수신"""
-        if len(msg.data) == 6:
+        if len(msg.position) == 6:
             self.last_encoder_time = time.time()
-            self.current_angles = list(msg.data)
+            # joint_states.position is typically in radians; convert to degrees for GUI
+            try:
+                from math import degrees
+                angles_deg = [degrees(p) for p in msg.position]
+            except Exception:
+                angles_deg = list(msg.position)
+
+            self.current_angles = angles_deg
             self.angles_updated.emit(self.current_angles)
-    
-    def pose_callback(self, msg):
-        """포즈 데이터 수신"""
-        from scipy.spatial.transform import Rotation as R
-        
-        x = msg.position.x * 1000  # m to mm
-        y = msg.position.y * 1000
-        z = msg.position.z * 1000
-        
-        r = R.from_quat([
-            msg.orientation.x, msg.orientation.y,
-            msg.orientation.z, msg.orientation.w
-        ])
-        roll, pitch, yaw = r.as_euler('xyz', degrees=True)
-        
-        self.current_pose = [x, y, z, roll, pitch, yaw]
-        self.pose_updated.emit(self.current_pose)
-    
-    def coords_callback(self, msg):
-        """좌표 데이터 수신"""
-        if len(msg.data) == 6:
-            self.current_coords = list(msg.data)
-            self.coords_updated.emit(self.current_coords)
+
+    def current_coords_callback(self, msg):
+        """Float64MultiArray로 오는 현재 좌표 수신 (Actual 필드 업데이트용)"""
+        try:
+            if hasattr(msg, 'data') and len(msg.data) == 6:
+                self.last_encoder_time = time.time()
+                # convert to float and keep incoming order
+                vals = [float(x) for x in msg.data]
+                self.current_coords = vals
+                # emit coords update for GUI without verbose logging
+                self.coords_updated.emit(self.current_coords)
+        except Exception:
+            pass
+
+    # Note: callbacks for incoming Float64MultiArray/pose/coords were removed
+    # because the corresponding subscriptions/publishers are no longer used.
     
     def check_connection(self):
         """로봇 연결 상태 체크"""
@@ -124,21 +98,7 @@ class RobotArmController(Node, QObject):
         msg.data = [float(a) for a in angles]
         self.pub_angles.publish(msg)
         self.current_angles = list(angles)
-    
-    def publish_coords(self, coords):
-        """좌표 명령 전송"""
-        msg = Float64MultiArray()
-        msg.data = [float(c) for c in coords]
-        # Emit GUI-friendly log instead of printing to console
-        try:
-            self.controller_log.emit(f"[RobotController] publish_coords: {msg.data}")
-        except Exception:
-            pass
-        self.pub_target_coords.publish(msg)
-        try:
-            self.controller_log.emit(f"[RobotController] 토픽 발행 완료: {self.pub_target_coords.topic_name}")
-        except Exception:
-            pass
+    # publish_coords removed because its publisher was deleted from initialization
     
     def send_servo(self, on):
         """서보 ON/OFF"""
@@ -147,11 +107,74 @@ class RobotArmController(Node, QObject):
         self.pub_servo.publish(msg)
     
     def send_gripper(self, state):
-        """그리퍼 제어 (0: UNGRIP, 1: GRIP)"""
+        """그리퍼 제어 (0: UNGRIP, 1: GRIP) - publish as Int32"""
         msg = Int32()
-        msg.data = state
+        msg.data = int(state)
         self.pub_gripper.publish(msg)
+    
+    def send_gripper_command(self, value):
+        """Send gripper command with a specific value (100 for GRIP, 0 for UNGRIP) as Int32"""
+        msg = Int32()
+        msg.data = int(value)
+        self.pub_gripper.publish(msg)
+        self.get_logger().info(f"Gripper command sent: {value}")
+
+    def publish_goal_pose(self, pose):
+        """Publish a goal pose (Float64MultiArray).
+
+        Args:
+            pose: iterable of 6 numeric values (assumed already in the correct unit)
+        """
+        try:
+            msg = Float64MultiArray()
+            msg.data = [float(x) for x in pose]
+            self.pub_goal_pose.publish(msg)
+            self.get_logger().info(f"Goal pose published: {msg.data}")
+        except Exception as e:
+            self.get_logger().error(f"Failed to publish goal pose: {e}")
     
     def go_home(self):
         """홈 위치로 이동"""
         self.publish_angles([0.0] * 6)
+
+    def _init_topics(self, robot_id: str):
+        """Centralized initialization of publishers and subscribers.
+
+        Creates `self.publishers` and `self.subscribers` dicts and sets
+        backward-compatible attributes like `pub_gripper`, `subs_joint_states`, etc.
+        """
+        # Publishers (use unique registry name to avoid rclpy internal attribute collisions)
+        self._topic_publishers = {}
+        self._topic_publishers['gripper'] = self.create_publisher(Int32, f'/{robot_id}/PTP_gripper_command', 10)
+        self._topic_publishers['servo'] = self.create_publisher(Bool, f'/{robot_id}/PTP_servo_status', 10)
+        self._topic_publishers['goal_pose'] = self.create_publisher(Float64MultiArray, f'/{robot_id}/PTP_goal_pose', 10)
+        # legacy publisher for explicit angles if used elsewhere
+        self._topic_publishers['angles'] = self.create_publisher(Float64MultiArray, f'/{robot_id}/PTP_angles', 10)
+        # Compressed camera image publisher (unified): use PTP name and CompressedImage
+        self._topic_publishers['PTP_capture_image_compressed'] = self.create_publisher(CompressedImage, f'/{robot_id}/PTP_capture_image/compressed', 5)
+
+        # Subscribers (private registry with unique name)
+        self._topic_subscribers = {}
+        self._topic_subscribers['joint_states'] = self.create_subscription(JointState, f'/{robot_id}/joint_states', self.joint_states_callback, 10)
+        self._topic_subscribers['tcp_pose'] = self.create_subscription(Float64MultiArray, f'/{robot_id}/PTP_tcp_pose', self.current_coords_callback, 10)
+
+        # Backwards-compatible attributes used by other code
+        self.pub_gripper = self._topic_publishers['gripper']
+        self.pub_servo = self._topic_publishers['servo']
+        self.pub_goal_pose = self._topic_publishers['goal_pose']
+        self.pub_angles = self._topic_publishers['angles']
+
+        self.subs_joint_states = self._topic_subscribers['joint_states']
+        self.subs_tcp_Pose = self._topic_subscribers['tcp_pose']
+
+    def get_publisher(self, name: str):
+        """Return a publisher by logical name from the centralized registry.
+
+        Args:
+            name: one of the keys in `self.publishers` (e.g. 'gripper', 'goal_pose')
+        """
+        return self._topic_publishers.get(name)
+
+    def get_subscriber(self, name: str):
+        """Return a subscriber by logical name from the centralized registry."""
+        return self._topic_subscribers.get(name)

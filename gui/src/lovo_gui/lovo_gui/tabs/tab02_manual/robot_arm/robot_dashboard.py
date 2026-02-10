@@ -11,7 +11,6 @@ from PyQt6.QtGui import QFont, QImage, QPixmap
 from pathlib import Path
 from .pose_memory_manager import PoseMemoryManager
 from .sdk_control import SDKControl
-from .moveit_control import MoveItControl
 
 
 
@@ -36,6 +35,12 @@ MOVE_BTN_HEIGHT = 45       # 큰 Move 버튼 높이
 # --- 기타 ---
 DATA_COL_WIDTH = TARGET_TO_P_WIDTH   # alias for backward compat: data column width
 UI_SPACING = 5        # 레이아웃 간격 (setSpacing 값)
+
+# --- 단위 변환 (UI 표시용: 들어오는 값은 이미 cm, 표시만 'cm'으로 변경) ---
+LENGTH_UNIT = "cm"
+# No scaling: incoming numbers are already in cm and will be used as-is
+SCALE_MM_TO_DISPLAY = 1.0
+SCALE_DISPLAY_TO_MM = 1.0
 
 
 class RobotDashboardWidget(QWidget):
@@ -62,8 +67,7 @@ class RobotDashboardWidget(QWidget):
         # 기본 폰트
         self.main_font = QFont("Arial", 9)
 
-        # MoveIt 사용 여부
-        self.use_moveit = False
+        # MoveIt removed — always use SDK control
 
         # Pose memory manager 초기화
         self.pose_memory_manager = PoseMemoryManager(slot_count=MEMORY_SLOT_COUNT)
@@ -82,7 +86,7 @@ class RobotDashboardWidget(QWidget):
         
         # 제어 클래스 초기화
         self.sdk_control = SDKControl(controller)
-        self.moveit_control = MoveItControl(controller)
+        # MoveItControl removed; always use SDKControl
         
         # RobotArmController Signal 연결
         controller.coords_updated.connect(self.update_coords_display)
@@ -191,7 +195,7 @@ class RobotDashboardWidget(QWidget):
         cart_group = QGroupBox()
         main_layout = QVBoxLayout()
         
-        # 헤더 라인: 타이틀 + MoveIt 체크박스
+        # 헤더 라인: 타이틀
         header_layout = QHBoxLayout()
         
         title_label = QLabel("🎯 좌표 컨트롤러 (Cartesian Controller)")
@@ -199,16 +203,6 @@ class RobotDashboardWidget(QWidget):
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
-        
-        # MoveIt 토글 버튼 (체크박스 대신 버튼 사용)
-        self.moveit_toggle_btn = QPushButton("MoveIt: OFF")
-        self.moveit_toggle_btn.setFixedSize(120, 35)
-        self.moveit_toggle_btn.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        self.moveit_toggle_btn.setCheckable(True)
-        self.moveit_toggle_btn.setChecked(self.use_moveit)
-        self._update_moveit_button_style()
-        self.moveit_toggle_btn.toggled.connect(self._on_moveit_toggled)
-        header_layout.addWidget(self.moveit_toggle_btn)
         
         main_layout.addLayout(header_layout)
         
@@ -238,7 +232,7 @@ class RobotDashboardWidget(QWidget):
             c_grid.addWidget(hdr, 0, pcol, Qt.AlignmentFlag.AlignCenter)
             self.p_header_labels[idx] = hdr
 
-        axes = ["X(mm)", "Y(mm)", "Z(mm)", "R(°)", "P(°)", "Y(°)"]
+        axes = [f"X({LENGTH_UNIT})", f"Y({LENGTH_UNIT})", f"Z({LENGTH_UNIT})", "R(°)", "P(°)", "Y(°)"]
         for i in range(6):
             row = i + 1
 
@@ -334,7 +328,8 @@ class RobotDashboardWidget(QWidget):
             jbtn_m.setFixedSize(32, 32)
             jbtn_m.clicked.connect(lambda ch, idx=j: self._cart_jog(idx, -1))
 
-            delta_input = QLineEdit("5.0")
+            # delta 입력은 UI에서 cm 단위로 표시
+            delta_input = QLineEdit("0.5")
             delta_input.setFixedSize(DELTA_INPUT_WIDTH, INPUT_HEIGHT)
             delta_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.pose_delta_inputs[j] = delta_input
@@ -360,7 +355,7 @@ class RobotDashboardWidget(QWidget):
         abs_coord_layout.setContentsMargins(UI_SPACING, UI_SPACING, UI_SPACING, UI_SPACING)
         
         # 라벨과 입력칸을 가로로 정렬
-        coord_axes = ["X(mm)", "Y(mm)", "Z(mm)", "R(°)", "P(°)", "Y(°)"]
+        coord_axes = [f"X({LENGTH_UNIT})", f"Y({LENGTH_UNIT})", f"Z({LENGTH_UNIT})", "R(°)", "P(°)", "Y(°)"]
         
         for i in range(6):
             # 각 좌표별 수평 레이아웃
@@ -467,18 +462,19 @@ class RobotDashboardWidget(QWidget):
         """좌표 데이터 업데이트 (엔코더값 = Actual)"""
         for i in range(6):
             if self.pose_actual_labels[i] and len(coords) > i:
-                # Actual: 엔코더값 표시 (안정성 강화)
-                actual_value = coords[i] if isinstance(coords[i], (int, float)) else 0.0
-                self.pose_actual_labels[i].setText(f"{actual_value:.1f}")
-                
-                # 오차 계산: Target과 Actual의 차이
+                # Actual: 엔코더값(mm) -> UI 표시 단위로 변환 (cm)
+                actual_value_mm = coords[i] if isinstance(coords[i], (int, float)) else 0.0
+                actual_display = actual_value_mm * SCALE_MM_TO_DISPLAY
+                self.pose_actual_labels[i].setText(f"{actual_display:.2f}")
+
+                # 오차 계산: Target(UI단위=cm)과 Actual(UI단위=cm)의 차이
                 try:
-                    target = float(self.pose_target_inputs[i].text())
-                    error = target - actual_value
-                    self.pose_error_labels[i].setText(f"{error:.1f}")
-                    
-                    # 오차 범위에 따른 색상 변경
-                    color = "#C8E6C9" if abs(error) < 1.0 else "#FFCDD2"
+                    target_display = float(self.pose_target_inputs[i].text())
+                    error_display = target_display - actual_display
+                    self.pose_error_labels[i].setText(f"{error_display:.2f}")
+
+                    # 오차 범위에 따른 색상 변경 (단위: cm)
+                    color = "#C8E6C9" if abs(error_display) < 1.0 else "#FFCDD2"
                     self.pose_error_labels[i].setStyleSheet(
                         f"background-color: {color}; color: black; "
                         f"border: 1px solid #f44336; border-radius: 3px;"
@@ -494,41 +490,17 @@ class RobotDashboardWidget(QWidget):
     def update_angles_display(self, angles):
         """엔코더 각도 데이터 업데이트"""
         for i in range(6):
-            if self.absolute_angle_inputs[i] and len(angles) > i:
-                angle_value = angles[i] if isinstance(angles[i], (int, float)) else 0.0
-                self.absolute_angle_inputs[i].setText(f"{angle_value:.2f}")
+            try:
+                if self.absolute_angle_inputs[i] and len(angles) > i:
+                    angle_value = float(angles[i])
+                    self.absolute_angle_inputs[i].setText(f"{angle_value:.2f}")
+            except Exception:
+                # ignore individual conversion errors to keep UI responsive
+                continue
     
     # ==================== 제어 메서드 ====================
     
-    def _on_moveit_changed(self, state):
-        """MoveIt 사용 여부 변경"""
-        self.use_moveit = (state == Qt.CheckState.Checked.value)
-        mode = "MoveIt" if self.use_moveit else "Direct"
-        self.work_log_signal.emit(f"🎯 {self.robot_name} 좌표 제어 모드: {mode}")
     
-    def _update_moveit_button_style(self):
-        """MoveIt 토글 버튼 스타일 업데이트"""
-        if self.moveit_toggle_btn.isChecked():
-            self.moveit_toggle_btn.setText("MoveIt: ON")
-            self.moveit_toggle_btn.setStyleSheet(
-                "QPushButton { background-color: #4CAF50; color: white; font-weight: bold; "
-                "border: 2px solid #2E7D32; border-radius: 5px; }"
-                "QPushButton:hover { background-color: #45a049; }"
-            )
-        else:
-            self.moveit_toggle_btn.setText("MoveIt: OFF")
-            self.moveit_toggle_btn.setStyleSheet(
-                "QPushButton { background-color: #BDBDBD; color: white; font-weight: bold; "
-                "border: 2px solid #757575; border-radius: 5px; }"
-                "QPushButton:hover { background-color: #A0A0A0; }"
-            )
-    
-    def _on_moveit_toggled(self, checked):
-        """MoveIt 토글 버튼 클릭 이벤트"""
-        self.use_moveit = checked
-        self._update_moveit_button_style()
-        mode = "MoveIt" if checked else "Direct"
-        self.work_log_signal.emit(f"🎯 {self.robot_name} 좌표 제어 모드: {mode}")
     
     def _cart_jog(self, axis, direction):
         """좌표 Jog"""
@@ -536,56 +508,71 @@ class RobotDashboardWidget(QWidget):
             return
         
         try:
+            # UI에서 delta는 same unit as incoming (cm). Compute new absolute pose and publish via controller.
             delta = float(self.pose_delta_inputs[axis].text())
             current = list(self.controller.current_coords)
             current[axis] += (direction * delta)
-            
-            # 제어 클래스 선택
-            control = self.moveit_control if self.use_moveit else self.sdk_control
-            control.move_jog_cartesian(axis, delta * direction)
-            
-            # Target 필드 업데이트
-            self.pose_target_inputs[axis].setText(f"{current[axis]:.1f}")
+
+            # Publish new target pose via ROS controller
+            try:
+                self.controller.publish_goal_pose(current)
+            except Exception:
+                # If controller doesn't implement publish_goal_pose, fallback to controller.publish_angles is not appropriate
+                pass
+
+            # Target 필드(UI)는 incoming unit (cm)
+            self.pose_target_inputs[axis].setText(f"{current[axis]:.2f}")
         except:
             pass
     
     def _servo_on(self):
         if self.controller:
-            control = self.moveit_control if self.use_moveit else self.sdk_control
-            control.set_servo(True)
-            self.work_log_signal.emit(f"✅ {self.robot_name} Servo ON - 명령 전송됨")
+            try:
+                self.controller.send_servo(True)
+                self.work_log_signal.emit(f"✅ {self.robot_name} Servo ON - 명령 전송됨")
+            except Exception as e:
+                self.work_log_signal.emit(f"❌ {self.robot_name} Servo ON 실패: {e}")
         else:
             self.work_log_signal.emit(f"⚠️ {self.robot_name} 컨트롤러가 연결되지 않았습니다!")
     
     def _servo_off(self):
         if self.controller:
-            control = self.moveit_control if self.use_moveit else self.sdk_control
-            control.set_servo(False)
-            self.work_log_signal.emit(f"❌ {self.robot_name} Servo OFF - 명령 전송됨")
+            try:
+                self.controller.send_servo(False)
+                self.work_log_signal.emit(f"❌ {self.robot_name} Servo OFF - 명령 전송됨")
+            except Exception as e:
+                self.work_log_signal.emit(f"❌ {self.robot_name} Servo OFF 실패: {e}")
         else:
             self.work_log_signal.emit(f"⚠️ {self.robot_name} 컨트롤러가 연결되지 않았습니다!")
     
     def _go_home(self):
         if self.controller:
-            control = self.moveit_control if self.use_moveit else self.sdk_control
-            control.go_home()
-            self.work_log_signal.emit(f"🏠 {self.robot_name} HOME 위치로 이동")
+            try:
+                # Use controller to publish home angles
+                self.controller.publish_angles([0.0] * 6)
+                self.work_log_signal.emit(f"🏠 {self.robot_name} HOME 위치로 이동")
+            except Exception as e:
+                self.work_log_signal.emit(f"❌ {self.robot_name} HOME 명령 실패: {e}")
         else:
             self.work_log_signal.emit(f"⚠️ {self.robot_name} 컨트롤러가 연결되지 않았습니다!")
     
     def _grip(self):
         if self.controller:
-            control = self.moveit_control if self.use_moveit else self.sdk_control
-            control.set_gripper(1)
-            self.work_log_signal.emit(f"✊ {self.robot_name} GRIP")
+            try:
+                self.controller.send_gripper_command(0)  # Send GRIP command
+                self.work_log_signal.emit(f"✊ {self.robot_name} GRIP")
+            except Exception as e:
+                self.work_log_signal.emit(f"❌ {self.robot_name} GRIP 실패: {e}")
         else:
             self.work_log_signal.emit(f"⚠️ {self.robot_name} 컨트롤러가 연결되지 않았습니다!")
     
     def _ungrip(self):
         if self.controller:
-            control = self.moveit_control if self.use_moveit else self.sdk_control
-            control.set_gripper(0)
-            self.work_log_signal.emit(f"🖐️ {self.robot_name} UNGRIP")
+            try:
+                self.controller.send_gripper_command(100)  # Send UNGRIP command
+                self.work_log_signal.emit(f"🖐️ {self.robot_name} UNGRIP")
+            except Exception as e:
+                self.work_log_signal.emit(f"❌ {self.robot_name} UNGRIP 실패: {e}")
         else:
             self.work_log_signal.emit(f"⚠️ {self.robot_name} 컨트롤러가 연결되지 않았습니다!")
     
@@ -597,20 +584,26 @@ class RobotDashboardWidget(QWidget):
         
         try:
             # 절대 좌표 입력값 읽기
-            target_coords = []
+            # UI에 들어온 값은 cm -> 변환하여 mm로 컨트롤에 전달
+            target_display = []
             for i in range(6):
-                value = float(self.absolute_coord_inputs[i].text())
-                target_coords.append(value)
-            
-            # 제어 클래스 선택
-            control = self.moveit_control if self.use_moveit else self.sdk_control
-            control.move_absolute_cartesian(target_coords)
-            
-            # Target 필드도 업데이트 (읽기 전용이지만 프로그램에서는 변경 가능)
+                value_cm = float(self.absolute_coord_inputs[i].text())
+                target_display.append(value_cm)
+
+            target_mm = [v * SCALE_DISPLAY_TO_MM for v in target_display]
+
+            # Publish via ROS controller (controller expects values as-is, UI uses same units)
+            try:
+                self.controller.publish_goal_pose(target_display)
+            except Exception as e:
+                self.work_log_signal.emit(f"❌ {self.robot_name} 목표 좌표 발행 실패: {e}")
+                return
+
+            # Target 필드도 업데이트 (UI는 incoming unit)
             for i in range(6):
-                self.pose_target_inputs[i].setText(f"{target_coords[i]:.1f}")
-            
-            coords_str = f"[{', '.join([f'{v:.1f}' for v in target_coords])}]"
+                self.pose_target_inputs[i].setText(f"{target_display[i]:.2f}")
+
+            coords_str = f"[{', '.join([f'{v:.2f}' for v in target_display])}]"
             self.work_log_signal.emit(f"🎯 {self.robot_name} 절대 좌표로 이동: {coords_str}")
             
         except ValueError as e:
@@ -623,7 +616,8 @@ class RobotDashboardWidget(QWidget):
         if self.controller:
             self.pose_memory[slot] = list(self.controller.current_coords)
             for i in range(6):
-                self.pose_mem_labels[slot][i].setText(f"{self.pose_memory[slot][i]:.1f}")
+                # 저장된 값(self.pose_memory)는 mm 단위. UI에는 cm로 표시
+                self.pose_mem_labels[slot][i].setText(f"{self.pose_memory[slot][i] * SCALE_MM_TO_DISPLAY:.2f}")
             # 파일에 저장
             self.pose_memory_manager.save(
                 self.robot_name, 
@@ -642,7 +636,7 @@ class RobotDashboardWidget(QWidget):
                 # UI 업데이트
                 if all(self.pose_mem_labels[slot]):
                     for i in range(6):
-                        self.pose_mem_labels[slot][i].setText(f"{self.pose_memory[slot][i]:.1f}")
+                        self.pose_mem_labels[slot][i].setText(f"{self.pose_memory[slot][i] * SCALE_MM_TO_DISPLAY:.2f}")
 
             # Update header label for this P slot if available
             if hasattr(self, 'p_header_labels') and slot in labels:
@@ -656,14 +650,18 @@ class RobotDashboardWidget(QWidget):
     def _move_pose_memory(self, slot):
         """좌표 메모리 이동"""
         if self.controller:
-            # 제어 클래스 선택
-            control = self.moveit_control if self.use_moveit else self.sdk_control
-            control.move_absolute_cartesian(self.pose_memory[slot])
-            coords_str = f"[{', '.join([f'{v:.1f}' for v in self.pose_memory[slot]])}]"
+            # Publish saved pose via controller (values stored are in incoming unit)
+            try:
+                self.controller.publish_goal_pose(self.pose_memory[slot])
+            except Exception as e:
+                self.work_log_signal.emit(f"❌ {self.robot_name} P{slot} 이동 발행 실패: {e}")
+                return
+            # 표시용 문자열 (incoming unit)
+            coords_str = f"[{', '.join([f'{(v * SCALE_MM_TO_DISPLAY):.2f}' for v in self.pose_memory[slot]])}]"
             self.work_log_signal.emit(f"🎯 {self.robot_name} P{slot} 위치로 이동: {coords_str}")
             # Target 값을 P1~N의 저장된 좌표로 변경
             for i in range(6):
-                self.pose_target_inputs[i].setText(f"{self.pose_memory[slot][i]:.1f}")
+                self.pose_target_inputs[i].setText(f"{self.pose_memory[slot][i] * SCALE_MM_TO_DISPLAY:.2f}")
     
     def _create_pose_memory_buttons(self):
         """좌표 메모리 저장/이동 버튼"""

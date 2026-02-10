@@ -3,106 +3,79 @@ name: lovo_robot_bridge
 topics:
   # Domain 70 → 60 (PC → Robot1)###########################################
 ##########################################################################
-  /robot1/target_angles:
-    type: std_msgs/msg/Float64MultiArray
-    from_domain: 70
-    to_domain: 60
-    remap: /target_angles
-
-  /robot1/servo_status:
-    type: std_msgs/msg/Bool
-    from_domain: 70
-    to_domain: 60
-    remap: /servo_status
-
-  /robot1/gripper_control:
+  /robot1/PTP_gripper_command:
     type: std_msgs/msg/Int32
     from_domain: 70
     to_domain: 60
-    remap: /gripper_control
+    remap: /PTP_gripper_command
 
-  /robot1/target_coords:
+  /robot2/PTP_gripper_command:
+    type: std_msgs/msg/Int32
+    from_domain: 70
+    to_domain: 61
+    remap: /PTP_gripper_command
+
+  /robot1/PTP_servo_status:
+      type: std_msgs/msg/Bool
+      from_domain: 70
+      to_domain: 60
+      remap: /PTP_servo_status
+
+  /robot2/PTP_servo_status:
+      type: std_msgs/msg/Bool
+      from_domain: 70
+      to_domain: 61
+      remap: /PTP_servo_status
+
+  /joint_states:
+    type: sensor_msgs/msg/JointState
+    from_domain: 60
+    to_domain: 70
+    remap: /robot1/joint_states
+
+  /joint_states:
+    type: sensor_msgs/msg/JointState
+    from_domain: 61
+    to_domain: 70
+    remap: /robot2/joint_states
+
+  /PTP_tcp_pose:
+    type: std_msgs/msg/Float64MultiArray
+    from_domain: 60
+    to_domain: 70
+    remap: /robot1/PTP_tcp_pose
+  /PTP_tcp_pose:
+    type: std_msgs/msg/Float64MultiArray
+    from_domain: 61
+    to_domain: 70
+    remap: /robot2/PTP_tcp_pose
+
+  /robot1/PTP_goal_pose:
     type: std_msgs/msg/Float64MultiArray
     from_domain: 70
     to_domain: 60
-    remap: /target_coords
+    remap: /PTP_goal_pose
 
-  # Domain 60 → 70 (Robot1 → PC)
-  /current_angles:
-
+  /robot2/PTP_goal_pose:
     type: std_msgs/msg/Float64MultiArray
-    from_domain: 60
-    to_domain: 70
-    remap: /robot1/current_angles
+    from_domain: 70
+    to_domain: 61
+    remap: /PTP_goal_pose
 
-  /current_coords:
-    type: std_msgs/msg/Float64MultiArray
-    from_domain: 60
-    to_domain: 70
-    remap: /robot1/current_coords
-
-  /current_pose:
-    type: geometry_msgs/msg/Pose
-    from_domain: 60
-    to_domain: 70
-    remap: /robot1/current_pose
-
-  /robot1/goal_pose:
-    type: geometry_msgs/msg/Pose
+  /robot1/PTP_capture_image/compressed:
+    type: sensor_msgs/msg/CompressedImage
     from_domain: 70
     to_domain: 60
-    remap: /goal_pose
+    remap: /PTP_capture_image/compressed
+
+  /robot2/PTP_capture_image/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    from_domain: 70
+    to_domain: 61
+    remap: /PTP_capture_image/compressed   
+
 ##########################################################################
 
-  # Domain 70 → 61 (PC → Robot2)###########################################
-  /robot2/target_angles:
-    type: std_msgs/msg/Float64MultiArray
-    from_domain: 70
-    to_domain: 61
-    remap: /target_angles
-
-  /robot2/servo_status:
-    type: std_msgs/msg/Bool
-    from_domain: 70
-    to_domain: 61
-    remap: /servo_status
-
-  /robot2/gripper_control:
-    type: std_msgs/msg/Int32
-    from_domain: 70
-    to_domain: 61
-    remap: /gripper_control
-
-  /robot2/target_coords:
-    type: std_msgs/msg/Float64MultiArray
-    from_domain: 70
-    to_domain: 61
-    remap: /target_coords
-
-  # Domain 61 → 70 (Robot2 → PC)
-  /current_angles:
-    type: std_msgs/msg/Float64MultiArray
-    from_domain: 61
-    to_domain: 70
-    remap: /robot2/current_angles
-
-  /current_coords:
-    type: std_msgs/msg/Float64MultiArray
-    from_domain: 61
-    to_domain: 70
-    remap: /robot2/current_coords
-
-  /current_pose:
-    type: geometry_msgs/msg/Pose
-    from_domain: 61
-    to_domain: 70
-    remap: /robot2/current_pose
-
-  /robot2/goal_pose:
-    type: geometry_msgs/msg/Pose
-    from_domain: 70
-    to_domain: 61
-    remap: /goal_pose
 
 ###########################################################################
 
