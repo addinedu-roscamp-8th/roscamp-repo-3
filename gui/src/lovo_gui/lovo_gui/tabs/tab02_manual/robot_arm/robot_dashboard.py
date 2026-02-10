@@ -635,12 +635,6 @@ class RobotDashboardWidget(QWidget):
     def load_pose_memory(self):
         """저장된 좌표 메모리 로드"""
         saved_memory, labels = self.pose_memory_manager.load_with_labels(self.robot_name)
-        try:
-            csv_path = self.pose_memory_manager._get_csv_path(self.robot_name)
-            self.work_log_signal.emit(f"🔎 [{self.robot_name}] CSV path: {csv_path}")
-            self.work_log_signal.emit(f"🔎 [{self.robot_name}] labels: {labels}")
-        except Exception:
-            pass
         for slot in range(1, MEMORY_SLOT_COUNT+1):
             slot_str = str(slot)
             if slot_str in saved_memory:
