@@ -5,22 +5,112 @@ from PyQt6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QGridLayout, QPushButton, QSizePolicy
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QImage, QPixmap
 import cv2
+from datetime import datetime
 from lovo_gui.constants import MAIN_SYSTEM_MAP, MAIN_ORDER_LOG, MAIN_ROBOT_GRID, MAIN_CAMERA_VIEW
 
 
 class MainTab(QWidget):
     """Main 탭 - 시스템 맵, 주문 로그, 로봇 상태, 카메라 뷰"""
     
-    def __init__(self, robot_settings, parent=None):
+    def __init__(self, robot_settings, comm_manager, parent=None):
         super().__init__(parent)
         self.robot_settings = robot_settings
+        self.comm_manager = comm_manager  # 통신 매니저 (API Client 접근용)
         self.camera_title = None
         self.camera_view_label = None
+        self.robot_status_labels = {}  # 로봇 상태 라벨들 저장 {robot_id: {'status': label, 'battery': label}}
+        
         self._setup_ui()
+        
+        # 데이터 갱신 타이머 (2초 간격)
+        self.data_timer = QTimer(self)
+        self.data_timer.timeout.connect(self._update_dashboard_data)
+        self.data_timer.start(2000)
     
+    def _update_dashboard_data(self):
+        """대시보드 데이터 갱신 (서버 API 호출)"""
+        # 1. 주문 로그 갱신
+        orders = self.comm_manager.api_client.get_orders()
+        if orders:
+            self._update_order_log(orders)
+            
+        # 2. 로봇 상태 갱신
+        robots_status = self.comm_manager.api_client.get_robots()
+        if robots_status:
+           self._update_robot_grid(robots_status)
+
+    def _update_robot_grid(self, robots_data):
+        """로봇 상태 그리드 갱신"""
+        # robots_data: [{'robot_id': 1, 'action_state': '...', 'battery_percent': 80, ...}]
+        
+        # map API data by string ID if possible, or just iterate
+        # 여기서는 robot_id가 integer라고 가정하고, GUI 설정의 id와 매핑 시도
+        # GUI id가 "robot1" 형식이면 "1" 부분과 매칭하거나, 
+        # 혹은 단순히 순서대로 매칭하거나 해야 함. 
+        # 현재는 DB robot_id와 GUI robot['domain'] 또는 id가 일치한다고 가정하기 어려움.
+        # 따라서 DB에 있는 'robot_kind'나 'role'을 보고 추측하거나,
+        # 단순하게 battery/status만 업데이트.
+        
+        # 임시: API 응답의 robot_id를 문자열로 변환하여 GUI id와 매칭 시도
+        api_robot_map = {str(r['robot_id']): r for r in robots_data}
+        
+        for r_id, labels in self.robot_status_labels.items():
+            # GUI id가 'robot1' -> '1'로 변환 시도
+            key = r_id
+            if r_id.startswith('robot'):
+                key = r_id.replace('robot', '')
+            
+            data = api_robot_map.get(key)
+            if data:
+                # 배터리
+                bat = data.get('battery_percent', 0)
+                labels['battery'].setText(f"{bat}%")
+                
+                # 상태 텍스트
+                state = data.get('action_state', 'Unknown')
+                labels['state'].setText(state)
+                
+                # 연결 표시 (데이터가 들어오면 온라인으로 간주)
+                # 하지만 로봇 직접 연결(Ping)과 서버 DB상 상태는 다를 수 있음
+                # 여기서는 DB 상태를 우선시하거나, Ping 상태와 병기해야 함.
+                # 우선은 배터리와 상태 텍스트만 업데이트.
+
+    def _update_order_log(self, orders):
+        """주문 로그 뷰어 업데이트"""
+        if not self.order_log_viewer:
+            return
+            
+        # 현재 텍스트 유지 여부 결정 (스크롤 등을 위해)
+        # 여기서는 매번 새로 쓰지 않고, 포맷팅해서 다시 보여주는 방식을 택함 (간단히)
+        
+        log_text = ""
+        for order in orders:
+            # order dict structure: 
+            # {'order_id': 1, 'customer_name': '...', 'furniture_name': '...', 'quantity': 1, 'status': 'PENDING', 'ordered_at': '...'}
+            try:
+                oid = order.get('order_id', '?')
+                cust = order.get('customer_name', 'Unknown')
+                item = order.get('furniture_name', 'Item')
+                qty = order.get('quantity', 1)
+                status = order.get('status', 'UNKNOWN')
+                time_str = order.get('ordered_at', '')
+                
+                # 시간 포맷팅 (datetime object일 수도 있고 string일 수도 있음)
+                if isinstance(time_str, str) and 'T' in time_str:
+                    time_str = time_str.split('T')[1][:8]  # HH:MM:SS
+                
+                line = f"[{time_str}] Order #{oid}: {item} x{qty} ({cust}) - {status}"
+                log_text += line + "\n"
+            except Exception:
+                continue
+                
+        self.order_log_viewer.setText(log_text)
+        # 스크롤 최하단?
+        # self.order_log_viewer.verticalScrollBar().setValue(self.order_log_viewer.verticalScrollBar().maximum())
+
     def _setup_ui(self):
         """UI 구성"""
         # 좌상단: 시스템 맵
@@ -55,7 +145,7 @@ class MainTab(QWidget):
         layout = QVBoxLayout(order_log_frame)
         layout.setContentsMargins(5, 5, 5, 5)
         
-        title = QLabel("주문 로그")
+        title = QLabel("주문 로그 (실시간)")
         title.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
@@ -100,6 +190,7 @@ class MainTab(QWidget):
         # 로봇별 정보
         robots = self.robot_settings.get_robots()
         for row, robot in enumerate(robots, start=1):
+            robot_id = robot.get("id")
             robot_name = robot.get("name", f"로봇 {row}")
             
             # 로봇 이름
@@ -123,12 +214,12 @@ class MainTab(QWidget):
             indicator = QFrame()
             indicator.setFixedSize(15, 15)
             indicator.setStyleSheet("""
-                background-color: #28a745;
+                background-color: #dc3545;
                 border-radius: 7px;
-                border: 1px solid #1e7e34;
+                border: 1px solid #bd2130;
             """)
             
-            status_text = QLabel("Connected")
+            status_text = QLabel("Offline")
             status_text.setStyleSheet("color: black; font-size: 12px;")
             
             status_layout.addWidget(indicator)
@@ -139,7 +230,7 @@ class MainTab(QWidget):
             grid_layout.addWidget(status_widget, row, 1)
             
             # 배터리 잔량
-            battery_label = QLabel("85%")
+            battery_label = QLabel("-")
             battery_label.setStyleSheet("""
                 background-color: white;
                 color: black;
@@ -151,10 +242,7 @@ class MainTab(QWidget):
             grid_layout.addWidget(battery_label, row, 2)
             
             # 현재 상태
-            if row > 2:  # 운송/청소 로봇
-                state_label = QLabel("위치: (X: 10.5, Y: 25.3)")
-            else:  # 로봇팔
-                state_label = QLabel("대기 중")
+            state_label = QLabel("-")
             state_label.setStyleSheet("""
                 background-color: white;
                 color: black;
@@ -192,7 +280,15 @@ class MainTab(QWidget):
             btn_layout.setContentsMargins(0, 0, 0, 0)
             btn_layout.addWidget(cam_btn, alignment=Qt.AlignmentFlag.AlignCenter)
             grid_layout.addWidget(btn_container, row, 4)
-    
+            
+            # 나중에 업데이트를 위해 저장
+            self.robot_status_labels[robot_id] = {
+                'status_indicator': indicator,
+                'status_text': status_text,
+                'battery': battery_label,
+                'state': state_label
+            }
+
     def _create_camera_view(self):
         """카메라 뷰"""
         x, y, w, h = MAIN_CAMERA_VIEW

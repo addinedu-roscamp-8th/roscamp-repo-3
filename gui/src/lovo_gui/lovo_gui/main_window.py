@@ -120,7 +120,7 @@ class MyMainWindow(QMainWindow):
         )
         
         # Main 탭
-        self.main_tab = MainTab(self.robot_settings)
+        self.main_tab = MainTab(self.robot_settings, self.comm_manager)
         tabs.addTab(self.main_tab, "Main")
         
         # Manual 탭
