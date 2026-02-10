@@ -21,7 +21,7 @@ app.add_middleware(
 
 # Database Configuration
 db_config = {
-    'host': '192.168.0.184',
+    'host': 'localhost',
     'user': 'lovoDB',
     'password': 'LovoDB1234!',
     'database': 'factory_system'
@@ -39,6 +39,11 @@ class OrderItem(BaseModel):
 class OrderCreate(BaseModel):
     items: List[OrderItem]
     customer_phone: Optional[str] = "010-0000-0000"
+
+class RobotStatusUpdate(BaseModel):
+    # This matches the JSON structure from bridge_manager.py
+    # { "pinky1": {"state": "...", "location": "...", "battery": 0.0}, ... }
+    statuses: dict
 
 @app.get("/api/products")
 def get_products():
@@ -168,6 +173,71 @@ def get_orders():
         if 'conn' in locals() and conn.is_connected():
             conn.close()
 
+@app.post("/api/status")
+def update_robot_status(status_data: dict):
+    """Update robot status in DB received from bridge_manager."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Mapping from ROS names to DB roles
+        name_map = {
+            'pinky1': 'PINKY_TRANS_1',
+            'pinky2': 'PINKY_TRANS_2',
+            'pinky3': 'PINKY_PATROL'
+        }
+        
+        for ros_name, info in status_data.items():
+            db_role = name_map.get(ros_name)
+            if not db_role:
+                continue
+                
+            state = info.get('state', 'IDLE')
+            # Map ROS state strings to DB ENUM if necessary
+            # For now, let's assume they match or are handled gracefully
+            
+            # Simple conversion if needed: MOVING_TO_PICKUP_1 -> TRANSPORTING
+            if 'MOVING' in state:
+                db_state = 'TRANSPORTING'
+            elif 'AT_PICKUP' in state:
+                db_state = 'PICKING'
+            elif 'IDLE' in state:
+                db_state = 'IDLE'
+            else:
+                db_state = state
+                
+            battery = info.get('battery', 100.0)
+            
+            cursor.execute("""
+                UPDATE robot 
+                SET action_state = %s, battery_percent = %s, last_seen_at = CURRENT_TIMESTAMP
+                WHERE robot_role = %s
+            """, (db_state, battery, db_role))
+            
+        conn.commit()
+        return {"status": "success"}
+    except Error as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+# Global variable for demo mission control
+current_mission_command = "WAIT"
+
+@app.get("/api/mission/command")
+def get_mission_command():
+    """Endpoint for bridge_manager to check for new commands."""
+    global current_mission_command
+    return {"command": current_mission_command}
+
+@app.post("/api/mission/start")
+def start_global_mission():
+    """Endpoint for web UI to trigger mission."""
+    global current_mission_command
+    current_mission_command = "START"
+    return {"status": "Mission started"}
+
 @app.post("/api/ai/analysis")
 async def ai_analysis(request: Request):
     """Bridge to AI Microservice."""
@@ -176,7 +246,7 @@ async def ai_analysis(request: Request):
         
         # Call AI Server (Running on port 8000)
         async with httpx.AsyncClient() as client:
-            response = await client.post("http://192.168.0.184:8000/predict", json=data)
+            response = await client.post("http://localhost:8000/predict", json=data)
             
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail="AI Server Error")

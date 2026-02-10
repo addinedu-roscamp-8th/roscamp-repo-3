@@ -9,9 +9,9 @@ import time
 from std_msgs.msg import String
 
 # --- Configuration ---
-MAIN_SERVER_URL = "http://main-server/api"  # TODO: Replace with actual IP
+MAIN_SERVER_URL = "http://192.168.0.30:5000/api"
 STATUS_EP = f"{MAIN_SERVER_URL}/status"
-ORDERS_EP = f"{MAIN_SERVER_URL}/orders"
+COMMAND_EP = f"{MAIN_SERVER_URL}/mission/command"
 
 class BridgeManager(Node):
     def __init__(self):
@@ -85,10 +85,10 @@ class BridgeManager(Node):
             time.sleep(1.0)
 
     def order_polling_loop(self):
-        """Thread 2: Poll for orders every 2 seconds"""
+        """Thread 2: Poll for mission commands every 2 seconds"""
         while rclpy.ok():
             try:
-                response = requests.get(ORDERS_EP, timeout=1.0)
+                response = requests.get(COMMAND_EP, timeout=1.0)
                 if response.status_code == 200:
                     data = response.json()
                     if data.get('command') == 'START':
@@ -97,8 +97,8 @@ class BridgeManager(Node):
                         msg.data = 'START'
                         self.start_pub.publish(msg)
             except Exception as e:
-                # self.get_logger().error(f'Order polling failed: {e}')
-                pass # Silent fail to avoid logs flooding if server is down
+                # self.get_logger().error(f'Command polling failed: {e}')
+                pass 
             time.sleep(2.0)
 
 def main(args=None):

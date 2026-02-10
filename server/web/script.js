@@ -110,7 +110,7 @@ const furnitureData = {
 // API Functions
 // ============================================
 
-const API_BASE_URL = 'http://192.168.0.7:5000/api';
+const API_BASE_URL = 'http://192.168.0.30:5000/api';
 
 async function fetchMaterials() {
     try {
@@ -148,6 +148,26 @@ async function submitOrder(orderData) {
     } catch (error) {
         console.error('Error submitting order:', error);
         throw error;
+    }
+}
+
+async function startMissionAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/mission/start`, {
+            method: 'POST'
+        });
+        return await response.json();
+    } catch (error) {
+        console.error('Error starting mission:', error);
+    }
+}
+
+async function fetchMissionCommand() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/mission/command`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching mission command:', error);
     }
 }
 
@@ -542,6 +562,32 @@ async function initMonitor() {
 
     // 1초마다 갱신
     setInterval(updateMonitor, 1000);
+
+    // 미션 시작 버튼 이벤트
+    const startBtn = document.getElementById('start-mission-btn');
+    if (startBtn) {
+        startBtn.addEventListener('click', async () => {
+            const res = await startMissionAPI();
+            if (res) {
+                showModal('정보', '미션 시작 명령을 전송했습니다.');
+                updateMissionStatusUI();
+            }
+        });
+    }
+
+    // 미션 상태 갱신 (명령 상태 확인)
+    setInterval(updateMissionStatusUI, 2000);
+}
+
+async function updateMissionStatusUI() {
+    const statusEl = document.getElementById('mission-status');
+    if (!statusEl) return;
+
+    const data = await fetchMissionCommand();
+    if (data && data.command) {
+        statusEl.textContent = `현재 명령: ${data.command}`;
+        statusEl.style.color = data.command === 'START' ? '#48bb78' : '#718096';
+    }
 }
 
 async function updateMonitor() {
