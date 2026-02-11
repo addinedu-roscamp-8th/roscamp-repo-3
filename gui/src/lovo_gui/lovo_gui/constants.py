@@ -39,6 +39,7 @@ COLOR_YELLOW = "#ffc107"
 COLOR_GRAY = "#6c757d"
 COLOR_BLUE = "#2196F3"
 COLOR_DARK_BG = "#2d2d2d"
+COLOR_ORANGE = "#ff9800"
 
 # 버튼 스타일
 STYLE_BUTTON_GREEN = f"""
@@ -86,6 +87,22 @@ STYLE_BUTTON_YELLOW = f"""
     }}
     QPushButton:pressed {{
         background-color: #d39e00;
+    }}
+"""
+
+STYLE_BUTTON_ORANGE = f"""
+    QPushButton {{
+        background-color: {COLOR_ORANGE};
+        color: white;
+        font-size: 16px;
+        font-weight: bold;
+        border-radius: 5px;
+    }}
+    QPushButton:hover {{
+        background-color: #fb8c00;
+    }}
+    QPushButton:pressed {{
+        background-color: #f57c00;
     }}
 """
 

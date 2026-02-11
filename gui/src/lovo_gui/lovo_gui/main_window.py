@@ -12,7 +12,7 @@ from PyQt6.QtGui import QCloseEvent, QScreen
 from lovo_gui.tabs.tab05_communication import RobotSettings, CommunicationManager
 from lovo_gui.constants import (
     WINDOW_WIDTH, WINDOW_HEIGHT, SIDEBAR_WIDTH, SIDEBAR_BUTTON_HEIGHT,
-    STYLE_BUTTON_GREEN, STYLE_BUTTON_RED, STYLE_BUTTON_YELLOW, STYLE_BUTTON_GRAY,
+    STYLE_BUTTON_GREEN, STYLE_BUTTON_RED, STYLE_BUTTON_YELLOW, STYLE_BUTTON_ORANGE, STYLE_BUTTON_GRAY,
     COLOR_DARK_BG, TAB_HEIGHT, TAB_WIDTH
 )
 from lovo_gui.tabs.tab01_main import MainTab
@@ -97,6 +97,19 @@ class MyMainWindow(QMainWindow):
         btn_reset = QPushButton("초기화")
         btn_reset.setFixedHeight(SIDEBAR_BUTTON_HEIGHT)
         btn_reset.setStyleSheet(STYLE_BUTTON_YELLOW)
+
+        # 서버 연결 토글 버튼 (인스턴스 속성으로 만들어 상태 변경 가능하게 함)
+        if getattr(self.comm_manager, 'server_enabled', False):
+            server_text = "서버 연결 해제"
+            server_style = STYLE_BUTTON_GRAY
+        else:
+            server_text = "서버 연결"
+            server_style = STYLE_BUTTON_ORANGE
+
+        self.btn_server_disconnect = QPushButton(server_text)
+        self.btn_server_disconnect.setFixedHeight(SIDEBAR_BUTTON_HEIGHT)
+        self.btn_server_disconnect.setStyleSheet(server_style)
+        self.btn_server_disconnect.clicked.connect(self._server_disconnect)
         
         btn_exit = QPushButton("종료")
         btn_exit.setFixedHeight(SIDEBAR_BUTTON_HEIGHT)
@@ -106,6 +119,7 @@ class MyMainWindow(QMainWindow):
         layout.addWidget(btn_run)
         layout.addWidget(btn_stop)
         layout.addWidget(btn_reset)
+        layout.addWidget(self.btn_server_disconnect)
         layout.addStretch()
         layout.addWidget(btn_exit)
         
@@ -180,6 +194,32 @@ class MyMainWindow(QMainWindow):
             print(f"⚠️ 종료 시 저장 오류: {str(e)}")
         finally:
             event.accept()
+
+    def _server_disconnect(self):
+        """토글: 서버 폴링 활성/비활성 및 버튼 텍스트/스타일 업데이트"""
+        try:
+            # Toggle flag
+            current = bool(getattr(self.comm_manager, 'server_enabled', False))
+            new_state = not current
+            if hasattr(self.comm_manager, 'set_server_enabled'):
+                self.comm_manager.set_server_enabled(new_state)
+            else:
+                self.comm_manager.server_enabled = new_state
+
+            # Update button appearance
+            if new_state:
+                # 서버 폴링 활성화 -> 버튼은 '해제'로 보이게
+                self.btn_server_disconnect.setText("서버 연결 해제")
+                self.btn_server_disconnect.setStyleSheet(STYLE_BUTTON_GRAY)
+            else:
+                # 비활성화 상태 -> 버튼은 '연결'로 보이게
+                self.btn_server_disconnect.setText("서버 연결")
+                self.btn_server_disconnect.setStyleSheet(STYLE_BUTTON_ORANGE)
+
+            # 로그 출력
+            print(f"[UI] server_enabled set to {new_state}")
+        except Exception as e:
+            print(f"[UI] _server_disconnect error: {e}")
 
 
 def main():

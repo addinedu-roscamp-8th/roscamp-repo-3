@@ -13,6 +13,8 @@ class CommunicationManager:
     def __init__(self, log_viewer=None):
         self.log_viewer = log_viewer
         self.api_client = APIClient()
+        # 서버 폴링 허용 플래그 (초기값: 비활성화)
+        self.server_enabled = False
     
     def check_connection(self, ip_address, status_label, device_name):
         """연결 상태 확인 (서버: API, 로봇: Ping)"""
@@ -96,3 +98,7 @@ class CommunicationManager:
     def set_log_viewer(self, log_viewer):
         """로그 뷰어 설정"""
         self.log_viewer = log_viewer
+
+    def set_server_enabled(self, enabled: bool):
+        """서버 폴링 허용 여부 설정"""
+        self.server_enabled = bool(enabled)

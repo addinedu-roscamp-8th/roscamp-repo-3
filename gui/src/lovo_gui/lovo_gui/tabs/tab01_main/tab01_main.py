@@ -32,15 +32,19 @@ class MainTab(QWidget):
     
     def _update_dashboard_data(self):
         """대시보드 데이터 갱신 (서버 API 호출)"""
+        # 서버 폴링이 비활성화된 경우 바로 리턴
+        if hasattr(self.comm_manager, 'server_enabled') and not self.comm_manager.server_enabled:
+            return
+
         # 1. 주문 로그 갱신
         orders = self.comm_manager.api_client.get_orders()
         if orders:
             self._update_order_log(orders)
-            
+
         # 2. 로봇 상태 갱신
         robots_status = self.comm_manager.api_client.get_robots()
         if robots_status:
-           self._update_robot_grid(robots_status)
+            self._update_robot_grid(robots_status)
 
     def _update_robot_grid(self, robots_data):
         """로봇 상태 그리드 갱신"""
