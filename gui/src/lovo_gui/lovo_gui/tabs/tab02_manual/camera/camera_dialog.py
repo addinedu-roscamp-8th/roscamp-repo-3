@@ -3,6 +3,7 @@
 """
 import time
 import json
+import csv
 import yaml
 import cv2
 from pathlib import Path
@@ -28,6 +29,7 @@ class CameraWidget(QWidget):
     COMMAND_PICKUP = 0
     COMMAND_PICKDOWN = 1
     COMMAND_NONE = 2
+    OFFSET_TARGET_ROBOTS = {"상차 로봇팔", "하차 로봇팔"}
     
     # Signal
     work_log_signal = pyqtSignal(str)  # 작업 로그 메시지
@@ -49,6 +51,9 @@ class CameraWidget(QWidget):
         
         # 픽업 시퀀스 관리
         self.pickup_sequence = PickupSequence()
+        self._is_loading_offsets = False
+        self.offset_memory_dir = Path("config") / "pose_memory"
+        self.offset_memory_enabled = self.robot_name in self.OFFSET_TARGET_ROBOTS
         
         # 캘리브레이션 데이터 로드
         # Disabled: calibration file loading is turned off per user request
@@ -65,6 +70,7 @@ class CameraWidget(QWidget):
         # ArUco 관련 기능 제거 — 관련 상태는 사용하지 않음
         
         self._setup_ui()
+        self._initialize_offset_memory()
     
     def _setup_ui(self):
         """UI 구성"""
@@ -181,62 +187,65 @@ class CameraWidget(QWidget):
         vision_group.setLayout(vision_layout)
         layout.addWidget(vision_group)
 
-        # 카메라 아래의 추가 레이아웃 패널 (상단 카메라 뷰와 작업 로그 사이)
-        self.camera_extra_group = QGroupBox(f"{self.robot_name} offset")
-        self.camera_extra_group.setFixedHeight(130)
-        extra_layout = QVBoxLayout()
-        extra_layout.setContentsMargins(8, 8, 8, 8)
-        extra_layout.setSpacing(3)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(0)
-        grid.setVerticalSpacing(0)
-
-        col_headers = ["X", "Y", "Z", "Z 상승"]
-        row_headers = ["픽업", "픽다운"]
-        keys = ["x", "y", "z", "z_lift"]
-
-        header_style = "border: 1px solid #666; padding: 2px; background-color: #3a3a3a;"
-        row_style = "border: 1px solid #666; padding: 2px; background-color: #3a3a3a;"
-        spin_style = (
-            "QDoubleSpinBox { border: 1px solid #666; padding: 0px 2px; background-color: #2f2f2f; color: white; }"
-            "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 14px; }"
-        )
-
-        # Header row
-        corner = QLabel("")
-        corner.setStyleSheet(header_style)
-        grid.addWidget(corner, 0, 0)
-        for col, header in enumerate(col_headers, start=1):
-            lbl = QLabel(header)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(header_style)
-            grid.addWidget(lbl, 0, col)
-
-        # Row headers + input spinboxes
+        # 카메라 아래 offset 패널 (상차/하차 로봇팔에서만 표시)
         self.offset_inputs = {"pickup": {}, "pickdown": {}}
-        row_key_map = {"픽업": "pickup", "픽다운": "pickdown"}
-        for row, row_name in enumerate(row_headers, start=1):
-            row_label = QLabel(row_name)
-            row_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            row_label.setStyleSheet(row_style)
-            grid.addWidget(row_label, row, 0)
+        self.camera_extra_group = None
+        if self.offset_memory_enabled:
+            self.camera_extra_group = QGroupBox(f"{self.robot_name} offset")
+            self.camera_extra_group.setFixedHeight(130)
+            extra_layout = QVBoxLayout()
+            extra_layout.setContentsMargins(8, 8, 8, 8)
+            extra_layout.setSpacing(3)
 
-            row_key = row_key_map[row_name]
-            for col, key in enumerate(keys, start=1):
-                spin = QDoubleSpinBox()
-                spin.setRange(-9999.0, 9999.0)
-                spin.setDecimals(2)
-                spin.setSingleStep(0.1)
-                spin.setValue(0.0)
-                spin.setFixedHeight(20)
-                spin.setStyleSheet(spin_style)
-                self.offset_inputs[row_key][key] = spin
-                grid.addWidget(spin, row, col)
+            grid = QGridLayout()
+            grid.setHorizontalSpacing(0)
+            grid.setVerticalSpacing(0)
 
-        extra_layout.addLayout(grid)
-        self.camera_extra_group.setLayout(extra_layout)
-        layout.addWidget(self.camera_extra_group)
+            col_headers = ["X", "Y", "Z", "Z 상승"]
+            row_headers = ["픽업", "픽다운"]
+            keys = ["x", "y", "z", "z_lift"]
+
+            header_style = "border: 1px solid #666; padding: 2px; background-color: #3a3a3a;"
+            row_style = "border: 1px solid #666; padding: 2px; background-color: #3a3a3a;"
+            spin_style = (
+                "QDoubleSpinBox { border: 1px solid #666; padding: 0px 2px; background-color: #2f2f2f; color: white; }"
+                "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 14px; }"
+            )
+
+            # Header row
+            corner = QLabel("")
+            corner.setStyleSheet(header_style)
+            grid.addWidget(corner, 0, 0)
+            for col, header in enumerate(col_headers, start=1):
+                lbl = QLabel(header)
+                lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                lbl.setStyleSheet(header_style)
+                grid.addWidget(lbl, 0, col)
+
+            # Row headers + input spinboxes
+            row_key_map = {"픽업": "pickup", "픽다운": "pickdown"}
+            for row, row_name in enumerate(row_headers, start=1):
+                row_label = QLabel(row_name)
+                row_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                row_label.setStyleSheet(row_style)
+                grid.addWidget(row_label, row, 0)
+
+                row_key = row_key_map[row_name]
+                for col, key in enumerate(keys, start=1):
+                    spin = QDoubleSpinBox()
+                    spin.setRange(-9999.0, 9999.0)
+                    spin.setDecimals(2)
+                    spin.setSingleStep(0.1)
+                    spin.setValue(0.0)
+                    spin.setFixedHeight(20)
+                    spin.setStyleSheet(spin_style)
+                    spin.valueChanged.connect(self._on_offset_value_changed)
+                    self.offset_inputs[row_key][key] = spin
+                    grid.addWidget(spin, row, col)
+
+            extra_layout.addLayout(grid)
+            self.camera_extra_group.setLayout(extra_layout)
+            layout.addWidget(self.camera_extra_group)
         
         # 파라미터 섹션: ArUco 및 좌표 변환 관련 UI/변수는 제거됨
 
@@ -462,6 +471,126 @@ class CameraWidget(QWidget):
             ]
         except Exception:
             return [0.0, 0.0, 0.0, 0.0]
+
+    def _get_offset_csv_path(self):
+        """현재 로봇의 offset 메모리 CSV 경로 반환."""
+        robot_id = self.robot_name.replace(" ", "_")
+        return self.offset_memory_dir / f"{robot_id}_offset.csv"
+
+    def _collect_offsets(self):
+        """UI 스핀박스의 offset 값을 dict로 수집."""
+        data = {"pickup": {}, "pickdown": {}}
+        for row_key in ("pickup", "pickdown"):
+            row = self.offset_inputs.get(row_key, {})
+            data[row_key] = {
+                "x": float(row.get("x").value()) if row.get("x") else 0.0,
+                "y": float(row.get("y").value()) if row.get("y") else 0.0,
+                "z": float(row.get("z").value()) if row.get("z") else 0.0,
+                "z_lift": float(row.get("z_lift").value()) if row.get("z_lift") else 0.0,
+            }
+        return data
+
+    def _apply_offsets(self, offsets):
+        """dict 형태의 offset 값을 UI 스핀박스에 반영."""
+        self._is_loading_offsets = True
+        try:
+            for row_key in ("pickup", "pickdown"):
+                row = self.offset_inputs.get(row_key, {})
+                row_data = offsets.get(row_key, {})
+                for key in ("x", "y", "z", "z_lift"):
+                    spin = row.get(key)
+                    if spin is None:
+                        continue
+                    spin.setValue(float(row_data.get(key, 0.0)))
+        finally:
+            self._is_loading_offsets = False
+
+    def _initialize_offset_memory(self):
+        """offset CSV를 로드하고, 없으면 기본값 파일 생성."""
+        if not self.offset_memory_enabled:
+            return
+        self.offset_memory_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = self._get_offset_csv_path()
+        if csv_path.exists():
+            self._load_offsets_from_csv()
+            return
+        self.save_offsets_to_csv()
+        try:
+            self.work_log_signal.emit(f"✅ offset CSV 생성: {csv_path}")
+        except Exception:
+            pass
+
+    def _load_offsets_from_csv(self):
+        """CSV 파일에서 offset 값을 로드."""
+        if not self.offset_memory_enabled:
+            return
+        csv_path = self._get_offset_csv_path()
+        if not csv_path.exists():
+            return
+
+        offsets = {
+            "pickup": {"x": 0.0, "y": 0.0, "z": 0.0, "z_lift": 0.0},
+            "pickdown": {"x": 0.0, "y": 0.0, "z": 0.0, "z_lift": 0.0},
+        }
+        try:
+            with open(csv_path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader, None)  # header
+                for row in reader:
+                    # row format: action,x,y,z,z_lift
+                    if len(row) < 5:
+                        continue
+                    action = row[0].strip().lower()
+                    if action not in ("pickup", "pickdown"):
+                        continue
+                    try:
+                        offsets[action] = {
+                            "x": float(row[1]),
+                            "y": float(row[2]),
+                            "z": float(row[3]),
+                            "z_lift": float(row[4]),
+                        }
+                    except Exception:
+                        continue
+
+            self._apply_offsets(offsets)
+            try:
+                self.work_log_signal.emit(f"✅ offset CSV 로드: {csv_path}")
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"❌ offset CSV 로드 실패 ({self.robot_name}): {e}")
+
+    def _on_offset_value_changed(self, _value):
+        """offset 입력값 변경 시 즉시 CSV 저장."""
+        if not self.offset_memory_enabled:
+            return
+        if self._is_loading_offsets:
+            return
+        self.save_offsets_to_csv()
+
+    def save_offsets_to_csv(self):
+        """현재 offset 값을 CSV에 저장."""
+        if not self.offset_memory_enabled:
+            return
+        self.offset_memory_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = self._get_offset_csv_path()
+        offsets = self._collect_offsets()
+        try:
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["action", "x", "y", "z", "z_lift"])
+                for action in ("pickup", "pickdown"):
+                    row = offsets[action]
+                    writer.writerow([
+                        action,
+                        row["x"],
+                        row["y"],
+                        row["z"],
+                        row["z_lift"],
+                    ])
+        except Exception as e:
+            print(f"❌ offset CSV 저장 실패 ({self.robot_name}): {e}")
     
     
     def update_camera_frame(self, frame):

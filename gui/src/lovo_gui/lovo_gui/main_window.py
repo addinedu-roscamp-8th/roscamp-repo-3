@@ -188,6 +188,12 @@ class MyMainWindow(QMainWindow):
                                     slot,
                                     dashboard.pose_memory[slot]
                                 )
+
+            # Manual 탭의 카메라 offset 값도 CSV로 저장
+            if hasattr(self, 'manual_tab') and hasattr(self.manual_tab, 'camera_widgets'):
+                for _robot_id, camera_widget in self.manual_tab.camera_widgets.items():
+                    if hasattr(camera_widget, 'save_offsets_to_csv'):
+                        camera_widget.save_offsets_to_csv()
             
             print("✅ 모든 좌표 메모리 저장 완료")
         except Exception as e:

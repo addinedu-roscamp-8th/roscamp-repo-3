@@ -1,0 +1,3 @@
+action,x,y,z,z_lift
+pickup,0.0,0.0,1.6,3.0
+pickdown,0.0,0.0,7.5,16.0
