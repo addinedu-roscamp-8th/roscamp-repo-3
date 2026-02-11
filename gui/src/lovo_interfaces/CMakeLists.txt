@@ -8,10 +8,13 @@ endif()
 # 1. 의존성 패키지 찾기
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED) # 메시지 생성을 위해 필수
+find_package(sensor_msgs REQUIRED)
 
 # 2. 메시지 파일 등록
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LovoStatus.msg"
+  "msg/CaptureImageWithCommand.msg"
+  DEPENDENCIES sensor_msgs
 )
 
 if(BUILD_TESTING)

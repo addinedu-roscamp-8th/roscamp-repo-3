@@ -67,59 +67,39 @@ class CameraController(QObject):
             print(f"⚠️ 캡처할 프레임이 없습니다")
             return None
 
-    def publish_frame_ros(self, jpg_bytes, robot_controller=None):
-        """Publish a JPEG-compressed frame to ROS using the centralized publisher.
-
-        Args:
-            jpg_bytes: bytes of JPEG-encoded image
-            robot_controller: optional RobotArmController instance; if not provided,
-                              uses the `self.robot_controller` set at init.
-        Returns:
-            True if published, False otherwise.
-        """
+    def publish_frame_with_command_ros(self, jpg_bytes, command_value=0, robot_controller=None):
+        """Publish image + command to the with-command test topic."""
         rc = robot_controller or self.robot_controller
         if rc is None:
             print("⚠️ ROS publisher not available (no robot_controller provided)")
             return False
 
-        # Diagnostic: show rc type
-        try:
-            print(f"publish_frame_ros: using rc={type(rc)}")
-        except Exception:
-            pass
-
         pub = None
         try:
-            pub = rc.get_publisher('PTP_capture_image_compressed')
+            pub = rc.get_publisher('PTP_capture_image_with_command_compressed')
         except Exception as e:
-            print(f"publish_frame_ros: get_publisher raised: {e}")
+            print(f"publish_frame_with_command_ros: get_publisher raised: {e}")
             pub = None
 
-        # Fallback to legacy name for robustness
         if pub is None:
-            try:
-                pub = rc.get_publisher('camera_compressed')
-                if pub is not None:
-                    print("publish_frame_ros: using fallback publisher 'camera_compressed'")
-            except Exception:
-                pass
-
-        if pub is None:
-            print("⚠️ PTP_capture_image_compressed publisher not found in robot controller")
+            print("⚠️ PTP_capture_image_with_command_compressed publisher not found in robot controller")
             return False
 
         try:
-            from sensor_msgs.msg import CompressedImage
-            msg = CompressedImage()
-            msg.format = 'jpeg'
-            # CompressedImage.data expects a sequence of uint8; bytearray works
-            msg.data = bytearray(jpg_bytes)
-            print(f"publish_frame_ros: publishing message of {len(msg.data)} bytes to publisher {pub}")
+            from lovo_interfaces.msg import CaptureImageWithCommand
+            msg = CaptureImageWithCommand()
+            msg.image.format = 'jpeg'
+            msg.image.data = bytearray(jpg_bytes)
+            msg.command = int(command_value)
+            print(
+                f"publish_frame_with_command_ros: publishing image={len(msg.image.data)} bytes, "
+                f"command={msg.command} to publisher {pub}"
+            )
             pub.publish(msg)
-            print("publish_frame_ros: publish succeeded")
+            print("publish_frame_with_command_ros: publish succeeded")
             return True
         except Exception as e:
-            print(f"❌ Failed to publish compressed image: {repr(e)}")
+            print(f"❌ Failed to publish capture payload: {repr(e)}")
             return False
     
     def _send_command(self, command):

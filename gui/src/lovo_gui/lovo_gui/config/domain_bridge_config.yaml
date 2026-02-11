@@ -62,20 +62,19 @@ topics:
     to_domain: 61
     remap: /PTP_goal_pose
 
-  /robot1/PTP_capture_image/compressed:
-    type: sensor_msgs/msg/CompressedImage
+  /robot1/PTP_capture_image_with_command/compressed:
+    type: lovo_interfaces/msg/CaptureImageWithCommand
     from_domain: 70
     to_domain: 60
-    remap: /PTP_capture_image/compressed
-
-  /robot2/PTP_capture_image/compressed:
-    type: sensor_msgs/msg/CompressedImage
+    remap: /PTP_capture_image_with_command/compressed
+  /robot2/PTP_capture_image_with_command/compressed:
+    type: lovo_interfaces/msg/CaptureImageWithCommand
     from_domain: 70
     to_domain: 61
-    remap: /PTP_capture_image/compressed   
+    remap: /PTP_capture_image_with_command/compressed   
+
 
 ##########################################################################
 
 
 ###########################################################################
-

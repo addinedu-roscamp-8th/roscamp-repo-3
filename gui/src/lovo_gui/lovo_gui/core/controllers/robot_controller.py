@@ -4,7 +4,8 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray, Bool, Int32
-from sensor_msgs.msg import JointState, Image, CompressedImage
+from sensor_msgs.msg import JointState
+from lovo_interfaces.msg import CaptureImageWithCommand
 from PyQt6.QtCore import QObject, pyqtSignal
 import time
 
@@ -150,8 +151,15 @@ class RobotArmController(Node, QObject):
         self._topic_publishers['goal_pose'] = self.create_publisher(Float64MultiArray, f'/{robot_id}/PTP_goal_pose', 10)
         # legacy publisher for explicit angles if used elsewhere
         self._topic_publishers['angles'] = self.create_publisher(Float64MultiArray, f'/{robot_id}/PTP_angles', 10)
-        # Compressed camera image publisher (unified): use PTP name and CompressedImage
-        self._topic_publishers['PTP_capture_image_compressed'] = self.create_publisher(CompressedImage, f'/{robot_id}/PTP_capture_image/compressed', 5)
+        # Camera payload publisher: custom message (image + command)
+        capture_pub = self.create_publisher(
+            CaptureImageWithCommand,
+            f'/{robot_id}/PTP_capture_image_with_command/compressed',
+            5
+        )
+        self._topic_publishers['PTP_capture_image_with_command_compressed'] = capture_pub
+        # Backward-compatible alias
+        self._topic_publishers['PTP_capture_image_compressed'] = capture_pub
 
         # Subscribers (private registry with unique name)
         self._topic_subscribers = {}

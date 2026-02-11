@@ -8,7 +8,8 @@ import cv2
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
-    QSpinBox, QDoubleSpinBox, QCheckBox, QGridLayout, QComboBox, QRadioButton, QButtonGroup
+    QSpinBox, QDoubleSpinBox, QCheckBox, QGridLayout, QComboBox, QRadioButton, QButtonGroup,
+    QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
@@ -18,28 +19,15 @@ import numpy as np
 from ..robot_arm.algorithm import (
     CoordinateTransformer,
     HandEyeTransformer,
-    ArucoMarkerProcessor,
     PickupSequence
 )
-
-# ArUco 마커 감지를 위한 라이브러리
-ARUCO_AVAILABLE = False
-aruco = None
-
-try:
-    import cv2.aruco as aruco
-    ARUCO_AVAILABLE = True
-except ImportError:
-    try:
-        from cv2 import aruco
-        ARUCO_AVAILABLE = True
-    except ImportError:
-        print(f"⚠️ ArUco 모듈을 찾을 수 없습니다")
-        ARUCO_AVAILABLE = False
 
 
 class CameraWidget(QWidget):
     """카메라 뷰 위젯"""
+    COMMAND_PICKUP = 0
+    COMMAND_PICKDOWN = 1
+    COMMAND_NONE = 2
     
     # Signal
     work_log_signal = pyqtSignal(str)  # 작업 로그 메시지
@@ -51,12 +39,13 @@ class CameraWidget(QWidget):
         self.robot_dashboard = None  # 좌표 저장을 위한 로봇 대시보드 참조
         self.is_aligning = False
         self.align_frame = None
-        
-        # ArUco 감지 결과 저장
+        # ArUco 관련 기본 상태 (기존 코드에서 참조됨 — 안전한 기본값 유지)
         self.aruco_detected = False
-        self.aruco_frozen_frame = None  # 정지된 프레임
-        self.aruco_target_coords = None  # 감지된 마커의 로봇 좌표 [x, y, z, r, p, yaw]
+        self.aruco_frozen_frame = None
+        self.aruco_target_coords = None
         self.aruco_marker_id = None
+        
+        # ArUco 관련 기능 제거 — 관련 상태는 사용하지 않음
         
         # 픽업 시퀀스 관리
         self.pickup_sequence = PickupSequence()
@@ -73,48 +62,7 @@ class CameraWidget(QWidget):
         if self.hand_eye_matrix is not None and self.camera_matrix is not None:
             self.hand_eye_transformer = HandEyeTransformer(self.hand_eye_matrix, self.camera_matrix)
         
-        # ArUco 마커 감지기 초기화
-        self.aruco_dict = None
-        self.aruco_detector = None
-        self.aruco_processor = None
-        
-        if ARUCO_AVAILABLE and aruco is not None:
-            try:
-                # 4x4 마커 사용 (작은 마커에 적합)
-                self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
-                try:
-                    params = aruco.DetectorParameters()
-                    self.aruco_detector = aruco.ArucoDetector(self.aruco_dict, params)
-                except Exception as e1:
-                    self.aruco_detector = None  # 구 API 사용
-                
-                # ArucoMarkerProcessor 인스턴스 생성
-                self.aruco_processor = ArucoMarkerProcessor()
-            except Exception as e:
-                print(f"⚠️ ArUco 초기화 실패: {e}")
-                self.aruco_dict = None
-                self.aruco_detector = None
-        
-        # ArUco 감지 파라미터
-        self.aruco_params = {
-            'adaptiveThreshConstant': 7,
-            'minMarkerPerimeterRate': 0.03,
-            'maxMarkerPerimeterRate': 4.0,
-            'polygonalApproxAccuracyRate': 0.02,
-            'minCornerDistanceRate': 0.02,
-            'minDistanceToBorder': 3,
-            'minMarkerDistanceRate': 0.05,
-            'cornerRefinementMethod': 0,
-            'cornerRefinementWinSize': 5,
-            'cornerRefinementMaxIterations': 30,
-            'minOtsuStdDev': 5.0,
-            'errorCorrectionRate': 0.6,
-            'detectInvertedMarker': False,
-            'perspectiveRemovePixelPerCell': 4,
-            'perspectiveRemoveIgnoredMarginPerCell': 13,
-            'maxMarkerDistanceRate': 0.73,
-            'polygonalApproxAccuracyRateScale': 0.1
-        }
+        # ArUco 관련 기능 제거 — 관련 상태는 사용하지 않음
         
         self._setup_ui()
     
@@ -210,23 +158,59 @@ class CameraWidget(QWidget):
         
         btn_row2.addStretch()
         btn_layout.addLayout(btn_row2)
+
+        # 세 번째 줄: PickUp, PickDown
+        btn_row3 = QHBoxLayout()
+        btn_row3.setSpacing(3)
+
+        self.btn_pickup = QPushButton("⬆️ PickUp")
+        self.btn_pickup.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
+        self.btn_pickup.setEnabled(False)
+        self.btn_pickup.clicked.connect(self._camera_pickup)
+        btn_row3.addWidget(self.btn_pickup)
+
+        self.btn_pickdown = QPushButton("⬇️ PickDown")
+        self.btn_pickdown.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
+        self.btn_pickdown.setEnabled(False)
+        self.btn_pickdown.clicked.connect(self._camera_pickdown)
+        btn_row3.addWidget(self.btn_pickdown)
+
+        btn_row3.addStretch()
+        btn_layout.addLayout(btn_row3)
         vision_layout.addWidget(btn_container)
         vision_group.setLayout(vision_layout)
         layout.addWidget(vision_group)
+
+        # 카메라 아래의 추가 레이아웃 패널 (상단 카메라 뷰와 작업 로그 사이)
+        from pathlib import Path
+        import json
+
+        # 캡션은 'offset'으로 고정하고, 값은 config/camera_parameters.json에서 읽어옵니다.
+        offset_value = "-"
+        try:
+            cfg_path = Path("config") / "camera_parameters.json"
+            if cfg_path.exists():
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                    entry = cfg.get(self.robot_name)
+                    if entry and isinstance(entry, dict):
+                        coord = entry.get('coord', {})
+                        offset_value = coord.get('z_offset', offset_value)
+        except Exception:
+            offset_value = "-"
+
+        self.camera_extra_group = QGroupBox("offset")
+        self.camera_extra_group.setFixedHeight(120)
+        extra_layout = QVBoxLayout()
+        extra_layout.setContentsMargins(8, 8, 8, 8)
+        # 값 표시 라벨 (work log 스타일과 유사하게 테두리 적용)
+        self.camera_offset_label = QLabel(str(offset_value))
+        self.camera_offset_label.setStyleSheet("background-color: black; color: white; border: 2px solid #555; border-radius: 4px; padding:6px;")
+        extra_layout.addWidget(self.camera_offset_label)
+        self.camera_extra_group.setLayout(extra_layout)
+        layout.addWidget(self.camera_extra_group)
         
-        # 파라미터 섹션: ArUco 관련 UI는 제거, 좌표 변환 파라미터만 표시
-        
-        # ArUco 파라미터 설정 섹션 (640px 너비 맞춤)
-        # ArUco 및 좌표 변환 파라미터 UI를 제거함 (사용하지 않음)
-        # 대신 내부 변수로 기본값을 설정합니다.
-        # ArUco 파라미터는 내부 dict `self.aruco_params`로 유지됩니다.
-        self.scale_x = 0.5  # mm/pixel
-        self.scale_y = 0.5  # mm/pixel
-        self.sign_x = "+"
-        self.sign_y = "+"
-        self.use_hand_eye = False
-        self.z_offset = -100.0
-        self.swap_xy = False
+        # 파라미터 섹션: ArUco 및 좌표 변환 관련 UI/변수는 제거됨
 
         layout.addStretch()
     
@@ -259,7 +243,12 @@ class CameraWidget(QWidget):
     def _camera_disconnect(self):
         """카메라 연결 해제"""
         if self.camera_controller:
-            self.camera_controller.stop()
+            # 로컬에서만 수신을 중지하고 원격 송출에는 영향 주지 않음
+            try:
+                self.camera_controller.stop(local_only=True)
+            except TypeError:
+                # 구 버전 호환성: 인자가 없는 stop() 호출 지원
+                self.camera_controller.stop()
     
     def _camera_capture(self):
         """카메라 캡처"""
@@ -284,19 +273,13 @@ class CameraWidget(QWidget):
                 self.work_log_signal.emit(log_msg)
     
     def _camera_live(self):
-        """Live 버튼 - ArUco 감지 상태를 해제하고 라이브 영상으로 복귀"""
-        if self.aruco_detected:
-            self.aruco_detected = False
-            self.aruco_frozen_frame = None
-            self.aruco_target_coords = None
-            self.aruco_marker_id = None
-            log_msg = "📺 라이브 영상 모드로 복귀"
-            print(log_msg)
+        """Live 버튼: 라이브 영상 모드로 전환 (ArUco 관련 동작 제거)"""
+        log_msg = "📺 라이브 영상 모드로 전환"
+        print(log_msg)
+        try:
             self.work_log_signal.emit(log_msg)
-        else:
-            log_msg = "📺 이미 라이브 영상 모드입니다"
-            print(log_msg)
-            self.work_log_signal.emit(log_msg)
+        except Exception:
+            pass
     
 
     def _camera_capture_with_coords(self):
@@ -363,12 +346,18 @@ class CameraWidget(QWidget):
             self.work_log_signal.emit(log_msg)
     
     def _camera_send_video(self):
-        """현재 프레임을 ROS로 전송하도록 트리거합니다.
+        self._send_frame_with_command(self.COMMAND_NONE, "Send Video")
 
-        실제 ROS 발행은 `CameraController`에 구현할 예정입니다. 우선 여기서는
-        최신 프레임을 JPEG로 인코딩해서 `camera_controller.publish_frame_ros(bytes)`가
-        있으면 호출하고, 없으면 파일로 저장 후 로그를 남깁니다.
-        """
+    def _camera_pickup(self):
+        """PickUp 커맨드 전송"""
+        self._send_frame_with_command(self.COMMAND_PICKUP, "PickUp")
+
+    def _camera_pickdown(self):
+        """PickDown 커맨드 전송"""
+        self._send_frame_with_command(self.COMMAND_PICKDOWN, "PickDown")
+
+    def _send_frame_with_command(self, command_value, action_name):
+        """현재 프레임을 JPEG+command 형태로 전송"""
         if not self.camera_controller:
             msg = "⚠️ 카메라 컨트롤러가 연결되지 않았습니다"
             print(msg)
@@ -390,35 +379,33 @@ class CameraWidget(QWidget):
 
             jpg_bytes = buf.tobytes()
 
-            # 우선 CameraController에 ROS 발행 함수가 있으면 호출
-            if hasattr(self.camera_controller, 'publish_frame_ros'):
-                try:
-                    published = self.camera_controller.publish_frame_ros(jpg_bytes)
-                    if published:
-                        msg = "📡 프레임을 ROS로 전송했습니다 (camera_controller.publish_frame_ros)"
-                    else:
-                        msg = "⚠️ camera_controller.publish_frame_ros 호출했으나 전송에 실패했습니다"
+            # CameraController의 with-command ROS 발행 함수 사용
+            if hasattr(self.camera_controller, 'publish_frame_with_command_ros'):
+                published = self.camera_controller.publish_frame_with_command_ros(
+                    jpg_bytes, command_value=command_value
+                )
+                if published:
+                    msg = f"📡 {action_name} 전송 완료 (command={command_value})"
                     print(msg)
                     self.work_log_signal.emit(msg)
                     return
-                except Exception as e:
-                    print(f"⚠️ publish_frame_ros 실패: {e}")
+                print("⚠️ publish_frame_with_command_ros 전송 실패, 파일 저장으로 대체")
 
-            # 그렇지 않으면 파일로 저장(대체 동작)
+            # 대체 동작: 파일 저장
             home_dir = Path.home()
             captures_dir = home_dir / "lovo_ws" / "captures" / self.robot_name / "send_video"
             captures_dir.mkdir(parents=True, exist_ok=True)
             timestamp = int(time.time())
-            filename = captures_dir / f"sendframe_{timestamp}.jpg"
+            filename = captures_dir / f"sendframe_{action_name.lower()}_{timestamp}.jpg"
             with open(filename, 'wb') as f:
                 f.write(jpg_bytes)
 
-            msg = f"📡 프레임을 파일로 저장했습니다: {filename} (ROS 발행은 CameraController에 구현하세요)"
+            msg = f"📡 {action_name} 프레임 저장: {filename}"
             print(msg)
             self.work_log_signal.emit(msg)
 
         except Exception as e:
-            msg = f"❌ Send Video 오류: {e}"
+            msg = f"❌ {action_name} 전송 오류: {e}"
             print(msg)
             self.work_log_signal.emit(msg)
     
@@ -486,6 +473,11 @@ class CameraWidget(QWidget):
                 self.btn_send_video.setEnabled(True)
             except Exception:
                 pass
+            try:
+                self.btn_pickup.setEnabled(True)
+                self.btn_pickdown.setEnabled(True)
+            except Exception:
+                pass
             self.btn_capture_with_coords.setEnabled(True)
             self.cam_view.setText("")
         else:
@@ -495,6 +487,11 @@ class CameraWidget(QWidget):
             self.btn_live.setEnabled(False)
             try:
                 self.btn_send_video.setEnabled(False)
+            except Exception:
+                pass
+            try:
+                self.btn_pickup.setEnabled(False)
+                self.btn_pickdown.setEnabled(False)
             except Exception:
                 pass
             self.btn_capture_with_coords.setEnabled(False)
