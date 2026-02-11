@@ -67,7 +67,7 @@ class CameraController(QObject):
             print(f"⚠️ 캡처할 프레임이 없습니다")
             return None
 
-    def publish_frame_with_command_ros(self, jpg_bytes, command_value=0, robot_controller=None):
+    def publish_frame_with_command_ros(self, jpg_bytes, command_value=0, offsets=None, robot_controller=None):
         """Publish image + command to the with-command test topic."""
         rc = robot_controller or self.robot_controller
         if rc is None:
@@ -91,9 +91,20 @@ class CameraController(QObject):
             msg.image.format = 'jpeg'
             msg.image.data = bytearray(jpg_bytes)
             msg.command = int(command_value)
+            ox, oy, oz, oz_lift = (0.0, 0.0, 0.0, 0.0)
+            if offsets is not None:
+                try:
+                    ox, oy, oz, oz_lift = [float(v) for v in offsets]
+                except Exception:
+                    pass
+            msg.offset_x = ox
+            msg.offset_y = oy
+            msg.offset_z = oz
+            msg.offset_z_lift = oz_lift
             print(
                 f"publish_frame_with_command_ros: publishing image={len(msg.image.data)} bytes, "
-                f"command={msg.command} to publisher {pub}"
+                f"command={msg.command}, offsets=({msg.offset_x}, {msg.offset_y}, {msg.offset_z}, {msg.offset_z_lift}) "
+                f"to publisher {pub}"
             )
             pub.publish(msg)
             print("publish_frame_with_command_ros: publish succeeded")

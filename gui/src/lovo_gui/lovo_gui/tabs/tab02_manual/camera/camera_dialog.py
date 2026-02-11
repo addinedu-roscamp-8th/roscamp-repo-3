@@ -182,31 +182,59 @@ class CameraWidget(QWidget):
         layout.addWidget(vision_group)
 
         # 카메라 아래의 추가 레이아웃 패널 (상단 카메라 뷰와 작업 로그 사이)
-        from pathlib import Path
-        import json
-
-        # 캡션은 'offset'으로 고정하고, 값은 config/camera_parameters.json에서 읽어옵니다.
-        offset_value = "-"
-        try:
-            cfg_path = Path("config") / "camera_parameters.json"
-            if cfg_path.exists():
-                with open(cfg_path, 'r', encoding='utf-8') as f:
-                    cfg = json.load(f)
-                    entry = cfg.get(self.robot_name)
-                    if entry and isinstance(entry, dict):
-                        coord = entry.get('coord', {})
-                        offset_value = coord.get('z_offset', offset_value)
-        except Exception:
-            offset_value = "-"
-
-        self.camera_extra_group = QGroupBox("offset")
-        self.camera_extra_group.setFixedHeight(120)
+        self.camera_extra_group = QGroupBox(f"{self.robot_name} offset")
+        self.camera_extra_group.setFixedHeight(130)
         extra_layout = QVBoxLayout()
         extra_layout.setContentsMargins(8, 8, 8, 8)
-        # 값 표시 라벨 (work log 스타일과 유사하게 테두리 적용)
-        self.camera_offset_label = QLabel(str(offset_value))
-        self.camera_offset_label.setStyleSheet("background-color: black; color: white; border: 2px solid #555; border-radius: 4px; padding:6px;")
-        extra_layout.addWidget(self.camera_offset_label)
+        extra_layout.setSpacing(3)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(0)
+        grid.setVerticalSpacing(0)
+
+        col_headers = ["X", "Y", "Z", "Z 상승"]
+        row_headers = ["픽업", "픽다운"]
+        keys = ["x", "y", "z", "z_lift"]
+
+        header_style = "border: 1px solid #666; padding: 2px; background-color: #3a3a3a;"
+        row_style = "border: 1px solid #666; padding: 2px; background-color: #3a3a3a;"
+        spin_style = (
+            "QDoubleSpinBox { border: 1px solid #666; padding: 0px 2px; background-color: #2f2f2f; color: white; }"
+            "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 14px; }"
+        )
+
+        # Header row
+        corner = QLabel("")
+        corner.setStyleSheet(header_style)
+        grid.addWidget(corner, 0, 0)
+        for col, header in enumerate(col_headers, start=1):
+            lbl = QLabel(header)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet(header_style)
+            grid.addWidget(lbl, 0, col)
+
+        # Row headers + input spinboxes
+        self.offset_inputs = {"pickup": {}, "pickdown": {}}
+        row_key_map = {"픽업": "pickup", "픽다운": "pickdown"}
+        for row, row_name in enumerate(row_headers, start=1):
+            row_label = QLabel(row_name)
+            row_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            row_label.setStyleSheet(row_style)
+            grid.addWidget(row_label, row, 0)
+
+            row_key = row_key_map[row_name]
+            for col, key in enumerate(keys, start=1):
+                spin = QDoubleSpinBox()
+                spin.setRange(-9999.0, 9999.0)
+                spin.setDecimals(2)
+                spin.setSingleStep(0.1)
+                spin.setValue(0.0)
+                spin.setFixedHeight(20)
+                spin.setStyleSheet(spin_style)
+                self.offset_inputs[row_key][key] = spin
+                grid.addWidget(spin, row, col)
+
+        extra_layout.addLayout(grid)
         self.camera_extra_group.setLayout(extra_layout)
         layout.addWidget(self.camera_extra_group)
         
@@ -378,14 +406,18 @@ class CameraWidget(QWidget):
                 raise RuntimeError('JPEG encoding failed')
 
             jpg_bytes = buf.tobytes()
+            offsets = self._get_offsets_for_action(action_name)
 
             # CameraController의 with-command ROS 발행 함수 사용
             if hasattr(self.camera_controller, 'publish_frame_with_command_ros'):
                 published = self.camera_controller.publish_frame_with_command_ros(
-                    jpg_bytes, command_value=command_value
+                    jpg_bytes, command_value=command_value, offsets=offsets
                 )
                 if published:
-                    msg = f"📡 {action_name} 전송 완료 (command={command_value})"
+                    msg = (
+                        f"📡 {action_name} 전송 완료 (command={command_value}, "
+                        f"offsets={offsets})"
+                    )
                     print(msg)
                     self.work_log_signal.emit(msg)
                     return
@@ -408,6 +440,28 @@ class CameraWidget(QWidget):
             msg = f"❌ {action_name} 전송 오류: {e}"
             print(msg)
             self.work_log_signal.emit(msg)
+
+    def _get_offsets_for_action(self, action_name):
+        """액션에 맞는 offset 4개를 반환 (x, y, z, z_lift)."""
+        row_key = None
+        if action_name == "PickUp":
+            row_key = "pickup"
+        elif action_name == "PickDown":
+            row_key = "pickdown"
+
+        if row_key is None:
+            return [0.0, 0.0, 0.0, 0.0]
+
+        try:
+            row = self.offset_inputs.get(row_key, {})
+            return [
+                float(row["x"].value()),
+                float(row["y"].value()),
+                float(row["z"].value()),
+                float(row["z_lift"].value()),
+            ]
+        except Exception:
+            return [0.0, 0.0, 0.0, 0.0]
     
     
     def update_camera_frame(self, frame):
