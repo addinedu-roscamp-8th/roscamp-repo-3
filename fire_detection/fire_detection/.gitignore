@@ -1,0 +1,32 @@
+# ROS 2 colcon build artifacts
+build/
+install/
+log/
+
+# Python cache/bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test/coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging artifacts
+*.egg-info/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE/editor files
+.vscode/
+.idea/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
