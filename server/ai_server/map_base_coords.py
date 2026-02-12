@@ -194,8 +194,8 @@ def run(
 if __name__ == "__main__":
     run(
         # model_path=Path("/path/to/best.pt"),
-        homography_yaml=Path("/home/addinedu/workspace/roscamp-repo-3/fire_detection/fire_detection/config/homography_params.yaml"),
-        robot_tf_yaml=Path("/home/addinedu/workspace/roscamp-repo-3/fire_detection/fire_detection/config/robot_tf_matrix.yaml"),
+        homography_yaml=Path("roscamp-repo-3/fire_detection/fire_detection/config/homography_params.yaml"),
+        robot_tf_yaml=Path("roscamp-repo-3/fire_detection/fire_detection/config/robot_tf_matrix.yaml"),
         camera_device="/dev/video0",
         target_label="fire",
         fps=10.0,
