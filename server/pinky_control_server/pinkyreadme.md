@@ -14,6 +14,7 @@
 
 ### **[Step 1] 관제 시스템 가동 (PC 측)**
 터미널에서 아래 명령 하나로 모든 브릿지와 모니터링 대시보드를 실행합니다.
+하나의 런치파일을 실행시키면 3개의 yaml파일이 작동됩니다
 ```bash
 ros2 launch /home/addinedu/Desktop/roscamp-repo-3/server/pinky_control_server/domain_bridge.launch.py
 ```
@@ -38,6 +39,7 @@ ros2 launch /home/addinedu/Desktop/roscamp-repo-3/server/pinky_control_server/do
 1. 관제 PC에서 `RViz2`를 실행합니다.
 2. 상단 **[2D Pose Estimate]** 버튼을 클릭합니다.
 3. 지도 위에서 로봇의 현재 실제 위치를 클릭하고 방향에 맞춰 드래그하세요.
+4. 좌표로 알려줘도 ok
 
 ---
 
