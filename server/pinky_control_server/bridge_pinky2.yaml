@@ -1,0 +1,15 @@
+# 핑키 2호기 브릿지 설정 (QoS 강화 버전)
+from_domain: 51
+to_domain: 59
+topics:
+  /battery/present:
+    type: std_msgs/msg/Float32
+    remap: /pinky_2/battery
+  /amcl_pose:
+    type: geometry_msgs/msg/PoseWithCovarianceStamped
+    remap: /pinky_2/pose
+    qos:
+      durability: transient_local  # 로봇의 AMCL 설정과 일치시킴
+  /status:
+    type: std_msgs/msg/String
+    remap: /pinky_2/status
