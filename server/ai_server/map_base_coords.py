@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import time
+from typing import Optional
 
+import logging
 import cv2
 import numpy as np
 import yaml
@@ -86,6 +88,25 @@ def label_from_result(names, cls_id: int) -> str:
         return str(names[cls_id])
     return str(cls_id)
 
+def load_map_base_transforms() -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    repo_root = Path(__file__).resolve().parents[2]
+    config_dir = repo_root / "fire_detection" / "fire_detection" / "config"
+    homography_yaml = config_dir / "homography_params.yaml"
+    robot_tf_yaml = config_dir / "robot_tf_matrix.yaml"
+
+    if not homography_yaml.exists() or not robot_tf_yaml.exists():
+        logging.warning(
+            "map/base transform YAML not found: %s, %s",
+            homography_yaml,
+            robot_tf_yaml,
+        )
+        return None, None
+
+    try:
+        return load_homography(homography_yaml), load_base_transform(robot_tf_yaml)
+    except Exception as exc:
+        logging.warning("failed to load map/base transforms: %s", exc)
+        return None, None
 
 # ----------------------------
 # Main loop
@@ -194,8 +215,8 @@ def run(
 if __name__ == "__main__":
     run(
         # model_path=Path("/path/to/best.pt"),
-        homography_yaml=Path("roscamp-repo-3/fire_detection/fire_detection/config/homography_params.yaml"),
-        robot_tf_yaml=Path("roscamp-repo-3/fire_detection/fire_detection/config/robot_tf_matrix.yaml"),
+        homography_yaml=Path("/roscamp-repo-3/fire_detection/fire_detection/config/homography_params.yaml"),
+        robot_tf_yaml=Path("/roscamp-repo-3/fire_detection/fire_detection/config/robot_tf_matrix.yaml"),
         camera_device="/dev/video0",
         target_label="fire",
         fps=10.0,

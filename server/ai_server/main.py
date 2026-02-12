@@ -1,16 +1,24 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import Optional, Dict
+from pathlib import Path
 import numpy as np
 import time
 import socket
 import threading
+import os
 import cv2
 import json
 import logging
-from collections import deque
 from ultralytics import YOLO
+from map_base_coords import (
+    run as run_map_base_coords,
+    pixel_to_map,
+    map_to_base,
+    load_homography,
+    load_base_transform,
+    load_map_base_transforms
+)
 
 app = FastAPI(title="LOVO Multi-Robot AI Analysis Server")
 
@@ -73,12 +81,29 @@ class RobotManager:
         # Load Models
         self.model_a = YOLO("models/yolov8n.pt")      # 상차/하차용
         self.model_b = YOLO("models/yolov8n-seg.pt")  # 핑키 세그멘테이션용
+        self.h_matrix, self.t_base_from_map = load_map_base_transforms()
         logging.debug("YOLO Models loaded successfully.")
 
     def get_robot(self, robot_id) -> Optional[RobotState]:
         return self.robots.get(robot_id)
 
 manager = RobotManager(ROBOT_CONFIG)
+
+
+def map_base_coords_task():
+    """Optional local-camera inference loop running inside this server process."""
+    try:
+        run_map_base_coords(
+            homography_yaml=Path("/home/addinedu/workspace/roscamp-repo-3/fire_detection/fire_detection/config/homography_params.yaml"),
+            robot_tf_yaml=Path("/home/addinedu/workspace/roscamp-repo-3/fire_detection/fire_detection/config/robot_tf_matrix.yaml"),
+            camera_device=os.getenv("MAP_BASE_CAMERA", "/dev/video0"),
+            target_label=os.getenv("MAP_BASE_LABEL", "fire"),
+            fps=float(os.getenv("MAP_BASE_FPS", "10.0")),
+            confidence_threshold=float(os.getenv("MAP_BASE_CONF", "0.25")),
+            visualize=os.getenv("MAP_BASE_VISUALIZE", "0") == "1",
+        )
+    except Exception:
+        logging.exception("map_base_coords worker crashed")
 
 # --- UDP Receiver Task ---
 def udp_receiver_task(robot_state: RobotState):
@@ -154,13 +179,30 @@ def inference_worker_task():
                         x1, y1, x2, y2 = xyxy[idx]
                         cx = (x1 + x2) / 2.0
                         cy = (y1 + y2) / 2.0
+
+                        map_coord = None
+                        base_coord = None
+                        if manager.h_matrix is not None and manager.t_base_from_map is not None:
+                            try:
+                                map_x, map_y = pixel_to_map(cx, cy, manager.h_matrix)
+                                base_x, base_y = map_to_base(map_x, map_y, manager.t_base_from_map)
+                                map_coord = {"frame_id": "map", "x": round(map_x, 3), "y": round(map_y, 3)}
+                                base_coord = {
+                                    "frame_id": "base_link",
+                                    "x": round(base_x, 3),
+                                    "y": round(base_y, 3),
+                                }
+                            except Exception as exc:
+                                logging.debug("coord transform error (%s): %s", robot_id, exc)
                         
                         target_data = {
                             "track_id": track_ids[idx],
                             "conf": round(confs[idx], 2),
                             "cx": round(cx, 1),
                             "cy": round(cy, 1),
-                            "bbox": [int(x1), int(y1), int(x2), int(y2)]
+                            "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                            "map_coord": map_coord,
+                            "base_coord": base_coord,
                         }
                         
                         state.tracking_state = "TRACK"
@@ -227,6 +269,12 @@ async def startup_event():
     t_inf = threading.Thread(target=inference_worker_task, daemon=True)
     t_inf.start()
 
+    # Optional: run map_base_coords loop in the same server process.
+    if os.getenv("ENABLE_MAP_BASE_COORDS", "0") == "1":
+        t_map = threading.Thread(target=map_base_coords_task, daemon=True)
+        t_map.start()
+        logging.info("map_base_coords worker started in background thread")
+
 # --- API Routes ---
 def generate_mjpeg_stream(robot_id, use_overlay=False):
     """Generator for MJPEG stream (Raw or Processed)."""
@@ -289,6 +337,7 @@ async def get_status():
             "is_active": (time.time() - s.last_receive_time) < 2.0
         }
     return status
+
 
 @app.get("/")
 def read_root():
