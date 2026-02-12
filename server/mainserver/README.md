@@ -45,6 +45,8 @@ GUI 쪽에서 서버와 연동하기 위해 수정 및 추가된 파일들의 �
 
 1.  **Main Server 실행**:
     ```bash
+    가상환경 활성화
+    source venv/bin/activate
     # server/mainserver 디렉토리에서
     python3 app.py
     ```
