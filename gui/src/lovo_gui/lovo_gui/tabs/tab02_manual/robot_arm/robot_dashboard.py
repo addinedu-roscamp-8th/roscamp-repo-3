@@ -20,17 +20,13 @@ MEMORY_SLOT_COUNT = 8  # 메모리 슬롯 개수 (P1~P5, 필요시 8로 변경)
 
 # --- UI Widths (px) ---
 AXIS_LABEL_WIDTH = 60      # 축 라벨 너비 (Axis column)
-JOG_ZONE_WIDTH = 0       # Jog 버튼 영역 너비 (그리드의 플레이스홀더 너비)
 TARGET_TO_P_WIDTH = 70     # Target, Actual, Error, P1..Pn 공통 너비
-ABS_INPUT_WIDTH = 70       # 절대 좌표/각도 입력 너비
-DELTA_INPUT_WIDTH = 40     # Jog delta 입력 너비
+ABS_INPUT_WIDTH = 70       # 각도 출력 입력 너비
 MEM_BUTTON_WIDTH = 75      # 메모리 버튼 너비
-MOVE_BTN_WIDTH = 120       # 큰 Move 버튼 너비
 
 # --- UI Heights (px) ---
 INPUT_HEIGHT = 32          # 일반 입력창 높이
 BUTTON_HEIGHT = 32         # 일반 버튼 높이
-MOVE_BTN_HEIGHT = 45       # 큰 Move 버튼 높이
 
 # --- 기타 ---
 DATA_COL_WIDTH = TARGET_TO_P_WIDTH   # alias for backward compat: data column width
@@ -56,12 +52,10 @@ class RobotDashboardWidget(QWidget):
         self.pose_memory = {i: [0.0]*6 for i in range(1, MEMORY_SLOT_COUNT+1)}
         self.pose_mem_labels = {i: [None]*6 for i in range(1, MEMORY_SLOT_COUNT+1)}
 
-        # Target, Actual, Error, Delta, Absolute 입력 필드
+        # Target, Actual, Error 입력 필드
         self.pose_target_inputs = [None] * 6  # Target 입력 필드 (읽기 전용)
         self.pose_actual_labels = [None] * 6
         self.pose_error_labels = [None] * 6
-        self.pose_delta_inputs = [None] * 6
-        self.absolute_coord_inputs = [None] * 6  # 절대 좌표 이동 입력 필드
         self.absolute_angle_inputs = [None] * 6  # 엔코더 각도 출력 필드
 
         # 기본 폰트
@@ -295,101 +289,6 @@ class RobotDashboardWidget(QWidget):
         
         main_layout.addLayout(c_grid)
         
-        # ==================== 절대 좌표/각도 이동 섹션 ====================
-        # 수평 레이아웃으로 절대 좌표와 절대 각도를 나란히 배치
-        abs_control_layout = QHBoxLayout()
-        abs_control_layout.setSpacing(UI_SPACING)
-
-        # ==================== Jog Zone (왼쪽) ====================
-        jog_group = QGroupBox("🕹️ Jog Zone")
-        jog_group.setMinimumWidth(JOG_ZONE_WIDTH)
-        jog_group.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        jog_layout = QVBoxLayout()
-        jog_layout.setContentsMargins(UI_SPACING, UI_SPACING, UI_SPACING, UI_SPACING)
-        jog_layout.setSpacing(UI_SPACING)
-        jog_name_lbl = QLabel(f"{self.robot_name} Jog Zone")
-        jog_name_lbl.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        jog_name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        jog_layout.addWidget(jog_name_lbl)
-        # Add a visible label for the Jog controls relocated here
-        jog_header_lbl = QLabel("Jog (+/-)")
-        jog_header_lbl.setFont(QFont("Arial", 9, QFont.Weight.Bold))
-        jog_header_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        jog_header_lbl.setStyleSheet("color: #333; padding-bottom: 4px;")
-        jog_layout.addWidget(jog_header_lbl)
-
-        # 각 축별로 Jog(-) [delta edit] Jog(+) 컨트롤을 이 영역에 배치
-        for j in range(6):
-            row_h = QHBoxLayout()
-            row_h.setSpacing(UI_SPACING)
-            row_h.setContentsMargins(0, 0, 0, 0)
-
-            jbtn_m = QPushButton("-")
-            jbtn_m.setFixedSize(32, 32)
-            jbtn_m.clicked.connect(lambda ch, idx=j: self._cart_jog(idx, -1))
-
-            # delta 입력은 UI에서 cm 단위로 표시
-            delta_input = QLineEdit("0.5")
-            delta_input.setFixedSize(DELTA_INPUT_WIDTH, INPUT_HEIGHT)
-            delta_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.pose_delta_inputs[j] = delta_input
-
-            jbtn_p = QPushButton("+")
-            jbtn_p.setFixedSize(32, 32)
-            jbtn_p.clicked.connect(lambda ch, idx=j: self._cart_jog(idx, 1))
-
-            row_h.addWidget(jbtn_m)
-            row_h.addWidget(delta_input)
-            row_h.addWidget(jbtn_p)
-            row_h.addStretch()
-            jog_layout.addLayout(row_h)
-
-        jog_layout.addStretch()
-        jog_group.setLayout(jog_layout)
-        abs_control_layout.addWidget(jog_group)
-
-        # ==================== 절대 좌표 이동 섹션 ====================
-        abs_coord_group = QGroupBox("📍 절대 좌표 이동 (Absolute Coordinate Movement)")
-        abs_coord_layout = QVBoxLayout()
-        abs_coord_layout.setSpacing(UI_SPACING)
-        abs_coord_layout.setContentsMargins(UI_SPACING, UI_SPACING, UI_SPACING, UI_SPACING)
-        
-        # 라벨과 입력칸을 가로로 정렬
-        coord_axes = [f"X({LENGTH_UNIT})", f"Y({LENGTH_UNIT})", f"Z({LENGTH_UNIT})", "R(°)", "P(°)", "Y(°)"]
-        
-        for i in range(6):
-            # 각 좌표별 수평 레이아웃
-            coord_h_layout = QHBoxLayout()
-            coord_h_layout.setSpacing(UI_SPACING)
-            coord_h_layout.setContentsMargins(UI_SPACING, 0, UI_SPACING, 0)
-            
-            # 라벨 (좌표컨트롤러와 동일한 스타일)
-            axis_lbl = QLabel(coord_axes[i])
-            axis_lbl.setFixedWidth(AXIS_LABEL_WIDTH)
-            axis_lbl.setFont(self.main_font)
-            axis_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            axis_lbl.setStyleSheet(
-                "border: 2px solid #666; background-color: #E0E0E0; color: black; border-radius: 3px; padding: 4px;"
-            )
-            coord_h_layout.addWidget(axis_lbl)
-            
-            # 입력 필드 (좌표컨트롤러의 Target과 동일한 스타일)
-            input_field = QLineEdit("0.0")
-            input_field.setFixedWidth(ABS_INPUT_WIDTH)
-            input_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            input_field.setStyleSheet(
-                "background-color: #E3F2FD; color: black; "
-                "border: 2px solid #2196F3; border-radius: 3px; padding: 2px;"
-            )
-            self.absolute_coord_inputs[i] = input_field
-            coord_h_layout.addWidget(input_field)
-            
-            coord_h_layout.addStretch()
-            abs_coord_layout.addLayout(coord_h_layout)
-        
-        abs_coord_group.setLayout(abs_coord_layout)
-        abs_control_layout.addWidget(abs_coord_group)
-        
         # ==================== 현재 엔코더 각도 표시 섹션 ====================
         abs_angle_group = QGroupBox("🔧 현재 엔코더 각도 (Current Encoder Angles)")
         abs_angle_layout = QVBoxLayout()
@@ -431,28 +330,7 @@ class RobotDashboardWidget(QWidget):
             abs_angle_layout.addLayout(angle_h_layout)
         
         abs_angle_group.setLayout(abs_angle_layout)
-        abs_control_layout.addWidget(abs_angle_group)
-        
-        main_layout.addLayout(abs_control_layout)
-        
-        # Move 버튼 추가
-        move_btn_layout = QHBoxLayout()
-        move_btn_layout.addStretch()
-        
-        move_btn = QPushButton("🎯 이동")
-        move_btn.setFixedSize(120, 45)
-        move_btn.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        move_btn.setStyleSheet(
-            "QPushButton { background-color: #4CAF50; color: white; "
-            "border-radius: 5px; border: 2px solid #45a049; } "
-            "QPushButton:hover { background-color: #45a049; } "
-            "QPushButton:pressed { background-color: #3d8b40; }"
-        )
-        move_btn.clicked.connect(self._move_to_target)
-        move_btn_layout.addWidget(move_btn)
-        move_btn_layout.addStretch()
-        
-        main_layout.addLayout(move_btn_layout)
+        main_layout.addWidget(abs_angle_group)
         cart_group.setLayout(main_layout)
         return cart_group
     
@@ -499,31 +377,6 @@ class RobotDashboardWidget(QWidget):
                 continue
     
     # ==================== 제어 메서드 ====================
-    
-    
-    
-    def _cart_jog(self, axis, direction):
-        """좌표 Jog"""
-        if not self.controller:
-            return
-        
-        try:
-            # UI에서 delta는 same unit as incoming (cm). Compute new absolute pose and publish via controller.
-            delta = float(self.pose_delta_inputs[axis].text())
-            current = list(self.controller.current_coords)
-            current[axis] += (direction * delta)
-
-            # Publish new target pose via ROS controller
-            try:
-                self.controller.publish_goal_pose(current)
-            except Exception:
-                # If controller doesn't implement publish_goal_pose, fallback to controller.publish_angles is not appropriate
-                pass
-
-            # Target 필드(UI)는 incoming unit (cm)
-            self.pose_target_inputs[axis].setText(f"{current[axis]:.2f}")
-        except:
-            pass
     
     def _servo_on(self):
         if self.controller:
@@ -576,41 +429,6 @@ class RobotDashboardWidget(QWidget):
         else:
             self.work_log_signal.emit(f"⚠️ {self.robot_name} 컨트롤러가 연결되지 않았습니다!")
     
-    def _move_to_target(self):
-        """절대 좌표로 이동"""
-        if not self.controller:
-            self.work_log_signal.emit(f"⚠️ {self.robot_name} 컨트롤러가 연결되지 않았습니다!")
-            return
-        
-        try:
-            # 절대 좌표 입력값 읽기
-            # UI에 들어온 값은 cm -> 변환하여 mm로 컨트롤에 전달
-            target_display = []
-            for i in range(6):
-                value_cm = float(self.absolute_coord_inputs[i].text())
-                target_display.append(value_cm)
-
-            target_mm = [v * SCALE_DISPLAY_TO_MM for v in target_display]
-
-            # Publish via ROS controller (controller expects values as-is, UI uses same units)
-            try:
-                self.controller.publish_goal_pose(target_display)
-            except Exception as e:
-                self.work_log_signal.emit(f"❌ {self.robot_name} 목표 좌표 발행 실패: {e}")
-                return
-
-            # Target 필드도 업데이트 (UI는 incoming unit)
-            for i in range(6):
-                self.pose_target_inputs[i].setText(f"{target_display[i]:.2f}")
-
-            coords_str = f"[{', '.join([f'{v:.2f}' for v in target_display])}]"
-            self.work_log_signal.emit(f"🎯 {self.robot_name} 절대 좌표로 이동: {coords_str}")
-            
-        except ValueError as e:
-            self.work_log_signal.emit(f"❌ {self.robot_name} 잘못된 좌표 입력값입니다!")
-        except Exception as e:
-            self.work_log_signal.emit(f"❌ {self.robot_name} 이동 실패: {str(e)}")
-
     def _save_pose_memory(self, slot):
         """좌표 메모리 저장"""
         if self.controller:
@@ -683,4 +501,3 @@ class RobotDashboardWidget(QWidget):
             pose_mem_btn_layout.addLayout(btn_v_layout)
         pose_mem_btn_layout.addStretch()
         return pose_mem_btn_layout
-

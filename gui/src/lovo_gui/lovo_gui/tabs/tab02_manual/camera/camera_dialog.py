@@ -103,86 +103,69 @@ class CameraWidget(QWidget):
         self.cam_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         vision_layout.addWidget(self.cam_view)
         
-        # 컨트롤 버튼 (2줄로 배치, 4개씩)
+        # 컨트롤 버튼 (4열 x 2행)
         btn_container = QWidget()
         btn_container.setMaximumWidth(640)
-        btn_layout = QVBoxLayout(btn_container)
+        btn_layout = QGridLayout(btn_container)
         btn_layout.setContentsMargins(0, 5, 0, 0)
         btn_layout.setSpacing(3)
         
         # ============ 버튼 크기 설정 (여기서 수정) ============
         BTN_WIDTH = 100   # 버튼 가로 크기 (축소)
-        BTN_HEIGHT = 24   # 버튼 세로 크기 (축소)
+        BTN_HEIGHT = 34   # 버튼 세로 크기 (+10)
         # =====================================================
-        
-        # 첫 번째 줄: Connect, 캡쳐, Live
-        btn_row1 = QHBoxLayout()
-        btn_row1.setSpacing(3)
         
         self.btn_connect = QPushButton("🔌 Connect")
         self.btn_connect.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_connect.clicked.connect(self._camera_connect)
-        btn_row1.addWidget(self.btn_connect)
         
         self.btn_capture = QPushButton("📸 캡쳐")
         self.btn_capture.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_capture.setEnabled(False)
         self.btn_capture.clicked.connect(self._camera_capture)
-        btn_row1.addWidget(self.btn_capture)
         
         self.btn_live = QPushButton("📺 Live")
         self.btn_live.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_live.setEnabled(False)
         self.btn_live.clicked.connect(self._camera_live)
-        btn_row1.addWidget(self.btn_live)
-        
-        btn_row1.addStretch()
-        btn_layout.addLayout(btn_row1)
-        
-        # 두 번째 줄: Disconnect, 캡쳐+좌표, Send Video
-        btn_row2 = QHBoxLayout()
-        btn_row2.setSpacing(3)
         
         self.btn_disconnect = QPushButton("❌ Disconnect")
         self.btn_disconnect.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_disconnect.setEnabled(False)
         self.btn_disconnect.clicked.connect(self._camera_disconnect)
-        btn_row2.addWidget(self.btn_disconnect)
         
         self.btn_capture_with_coords = QPushButton("📸 캡쳐+좌표")
         self.btn_capture_with_coords.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_capture_with_coords.setEnabled(False)
         self.btn_capture_with_coords.clicked.connect(self._camera_capture_with_coords)
-        btn_row2.addWidget(self.btn_capture_with_coords)
 
         # Send Video 버튼: ROS로 영상 전송 기능 연결 예정
         self.btn_send_video = QPushButton("📡 Send Video")
         self.btn_send_video.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_send_video.setEnabled(False)
         self.btn_send_video.clicked.connect(self._camera_send_video)
-        btn_row2.addWidget(self.btn_send_video)
-        
-        btn_row2.addStretch()
-        btn_layout.addLayout(btn_row2)
-
-        # 세 번째 줄: PickUp, PickDown
-        btn_row3 = QHBoxLayout()
-        btn_row3.setSpacing(3)
 
         self.btn_pickup = QPushButton("⬆️ PickUp")
         self.btn_pickup.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_pickup.setEnabled(False)
         self.btn_pickup.clicked.connect(self._camera_pickup)
-        btn_row3.addWidget(self.btn_pickup)
 
         self.btn_pickdown = QPushButton("⬇️ PickDown")
         self.btn_pickdown.setFixedSize(BTN_WIDTH, BTN_HEIGHT)
         self.btn_pickdown.setEnabled(False)
         self.btn_pickdown.clicked.connect(self._camera_pickdown)
-        btn_row3.addWidget(self.btn_pickdown)
-
-        btn_row3.addStretch()
-        btn_layout.addLayout(btn_row3)
+        
+        # 4x2 배치
+        # 1행: Connect / Capture / Live / PickUp
+        # 2행: Disconnect / Capture+Coords / Send Video / PickDown
+        btn_layout.addWidget(self.btn_connect, 0, 0)
+        btn_layout.addWidget(self.btn_capture, 0, 1)
+        btn_layout.addWidget(self.btn_live, 0, 2)
+        btn_layout.addWidget(self.btn_pickup, 0, 3)
+        btn_layout.addWidget(self.btn_disconnect, 1, 0)
+        btn_layout.addWidget(self.btn_capture_with_coords, 1, 1)
+        btn_layout.addWidget(self.btn_send_video, 1, 2)
+        btn_layout.addWidget(self.btn_pickdown, 1, 3)
         vision_layout.addWidget(btn_container)
         vision_group.setLayout(vision_layout)
         layout.addWidget(vision_group)
