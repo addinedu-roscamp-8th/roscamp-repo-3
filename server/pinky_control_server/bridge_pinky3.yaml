@@ -1,5 +1,5 @@
 # 핑키 3호기 브릿지 설정 (QoS 강화 버전)
-from_domain: 50
+from_domain: 52
 to_domain: 59
 topics:
   /battery/present:
