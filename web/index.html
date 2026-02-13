@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOVO - 모듈형 가구 주문 시스템</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- 상단 네비게이션 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <h1>LOVO</h1>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="furniture.html">가구 주문하기</a></li>
+                <li><a href="materials.html">현재 모든 자재 수량</a></li>
+                <li><a href="cart.html">장바구니 <span id="cart-count" class="cart-badge">0</span></a></li>
+                <li><a href="about.html">ABOUT LOVO</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- 메인 콘텐츠 -->
+    <main class="main-content">
+        <section class="hero">
+            <div class="hero-content">
+                <h2>당신의 가구를 만드세요</h2>
+                <p>LOVO에서는 완성된 가구가 아닌, 당신이 원하는 자재를 선택하여 맞춤형 가구를 주문합니다.</p>
+                <a href="furniture.html" class="cta-button">가구 주문 시작하기</a>
+            </div>
+            <div class="hero-image">
+                <img src="images/main-icon.png" alt="LOVO 메인 이미지"
+                    style="width: 100%; height: auto; object-fit: contain;">
+            </div>
+        </section>
+
+        <section class="features">
+            <div class="feature-card">
+                <div class="feature-icon">🛠️</div>
+                <h3>자유로운 커스터마이징</h3>
+                <p>자재, 재질, 색상을 직접 선택하여 당신만의 가구를 만드세요.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">♻️</div>
+                <h3>친환경 소재</h3>
+                <p>지속 가능한 자재만을 사용하여 환경을 생각합니다.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💰</div>
+                <h3>투명한 가격</h3>
+                <p>필요한 것만 구매하여 비용을 절감하세요.</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- 푸터 -->
+    <footer class="footer">
+        <p>&copy; 2026 LOVO. All rights reserved.</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
