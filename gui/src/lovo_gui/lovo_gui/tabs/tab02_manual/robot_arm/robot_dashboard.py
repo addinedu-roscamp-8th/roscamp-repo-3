@@ -577,8 +577,8 @@ class RobotDashboardWidget(QWidget):
             pub = self.controller.get_publisher('order_command')
             
             if pub:
-                from std_msgs.msg import Float32
-                msg = Float32()
+                from std_msgs.msg import Float64
+                msg = Float64()
                 msg.data = value
                 pub.publish(msg)
                 

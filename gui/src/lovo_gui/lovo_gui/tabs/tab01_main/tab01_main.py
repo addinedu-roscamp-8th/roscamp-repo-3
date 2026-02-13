@@ -5,11 +5,78 @@ from PyQt6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QGridLayout, QPushButton, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 import cv2
 from datetime import datetime
 from lovo_gui.constants import MAIN_SYSTEM_MAP, MAIN_ORDER_LOG, MAIN_ROBOT_GRID, MAIN_CAMERA_VIEW
+
+# 카메라 크롭 설정 (픽셀 단위) - 여기서 조절하세요!
+CROP_TOP = 80     # 위쪽 자르기
+CROP_BOTTOM = 90  # 아래쪽 자르기
+CROP_LEFT = 0      # 왼쪽 자르기
+CROP_RIGHT = 0     # 오른쪽 자르기
+
+# 카메라 반전 설정
+CAMERA_FLIP_HORIZONTAL = True  # 좌우 반전 (미러링)
+CAMERA_FLIP_VERTICAL = True    # 상하 반전
+
+
+class LocalCameraController(QThread):
+    """로컬 USB 카메라 제어용 스레드"""
+    frame_updated = pyqtSignal(QImage)
+
+    def __init__(self, camera_index=0):
+        super().__init__()
+        self.camera_index = camera_index
+        self.running = False
+
+    def run(self):
+        self.running = True
+        cap = cv2.VideoCapture(self.camera_index)
+        
+        while self.running:
+            ret, frame = cap.read()
+            if ret:
+                try:
+                    # 크롭 적용
+                    h, w, _ = frame.shape
+                    # 음수 인덱싱 방지를 위한 범위 계산
+                    start_y = CROP_TOP
+                    end_y = h - CROP_BOTTOM
+                    start_x = CROP_LEFT
+                    end_x = w - CROP_RIGHT
+                    
+                    # 유효성 검사 (크롭 영역이 이미지보다 크면 원본 사용)
+                    if start_y < end_y and start_x < end_x:
+                        frame = frame[start_y:end_y, start_x:end_x]
+                    
+                    # 반전 적용
+                    if CAMERA_FLIP_HORIZONTAL and CAMERA_FLIP_VERTICAL:
+                        frame = cv2.flip(frame, -1)
+                    elif CAMERA_FLIP_HORIZONTAL:
+                        frame = cv2.flip(frame, 1)
+                    elif CAMERA_FLIP_VERTICAL:
+                        frame = cv2.flip(frame, 0)
+                    
+                    # OpenCV BGR -> RGB
+                    rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w, ch = rgb_image.shape
+                    bytes_per_line = ch * w
+                    qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+                    # QImage 복사본을 전달해야 안전함 (버퍼 문제 방지)
+                    self.frame_updated.emit(qt_image.copy())
+                except Exception:
+                    pass
+            else:
+                # 읽기 실패 시 잠시 대기
+                self.msleep(100)
+        
+        cap.release()
+
+    def stop(self):
+        self.running = False
+        self.wait()
 
 
 class MainTab(QWidget):
@@ -23,6 +90,10 @@ class MainTab(QWidget):
         self.camera_view_label = None
         self.robot_status_labels = {}  # 로봇 상태 라벨들 저장 {robot_id: {'status': label, 'battery': label}}
         
+        # 로컬 카메라 컨트롤러
+        self.local_camera = None
+        self.system_map_cam_label = None
+        
         self._setup_ui()
         
         # 데이터 갱신 타이머 (2초 간격)
@@ -30,6 +101,12 @@ class MainTab(QWidget):
         self.data_timer.timeout.connect(self._update_dashboard_data)
         self.data_timer.start(2000)
     
+    def cleanup(self):
+        """리소스 정리"""
+        if self.local_camera:
+            self.local_camera.stop()
+            self.local_camera = None
+
     def _update_dashboard_data(self):
         """대시보드 데이터 갱신 (서버 API 호출)"""
         # 서버 폴링이 비활성화된 경우 바로 리턴
@@ -130,15 +207,40 @@ class MainTab(QWidget):
         self._create_camera_view()
     
     def _create_system_map(self):
-        """시스템 맵"""
+        """시스템 맵 (USB 카메라)"""
         x, y, w, h = MAIN_SYSTEM_MAP
         system_map = QFrame(self)
         system_map.setGeometry(x, y, w, h)
-        system_map.setStyleSheet("QFrame { background-color: #e8e8e8; border: none; }")
+        system_map.setStyleSheet("QFrame { background-color: #000000; border: none; }")
         
         layout = QVBoxLayout(system_map)
-        layout.addWidget(QLabel("시스템 맵", alignment=Qt.AlignmentFlag.AlignCenter))
-    
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 카메라 영상 표시용 라벨
+        self.system_map_cam_label = QLabel("USB Camera Loading...")
+        self.system_map_cam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.system_map_cam_label.setStyleSheet("color: white;")
+        layout.addWidget(self.system_map_cam_label)
+        
+        # 로컬 카메라 시작
+        try:
+            self.local_camera = LocalCameraController(0)  # Device Index 0
+            self.local_camera.frame_updated.connect(self._update_system_map_frame)
+            self.local_camera.start()
+        except Exception as e:
+            self.system_map_cam_label.setText(f"Camera Error: {e}")
+
+    def _update_system_map_frame(self, image):
+        """시스템 맵 카메라 프레임 갱신"""
+        if self.system_map_cam_label:
+            pix = QPixmap.fromImage(image)
+            scaled_pix = pix.scaled(
+                self.system_map_cam_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.system_map_cam_label.setPixmap(scaled_pix)
+
     def _create_order_log(self):
         """주문 로그"""
         x, y, w, h = MAIN_ORDER_LOG

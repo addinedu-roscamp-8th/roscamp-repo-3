@@ -17,7 +17,6 @@ from lovo_gui.constants import (
 )
 from lovo_gui.tabs.tab01_main import MainTab
 from lovo_gui.tabs.tab02_manual import ManualTab
-from lovo_gui.tabs.tab03_monitoring import MonitoringTab
 from lovo_gui.tabs.tab04_ros_monitor import RosMonitorTab
 from lovo_gui.tabs.tab05_communication import CommunicationTab
 from lovo_gui.tabs.tab06_log import LogTab
@@ -141,10 +140,6 @@ class MyMainWindow(QMainWindow):
         self.manual_tab = ManualTab(self.robot_settings)
         tabs.addTab(self.manual_tab, "Manual")
         
-        # Monitoring 탭
-        self.monitoring_tab = MonitoringTab()
-        tabs.addTab(self.monitoring_tab, "Monitoring")
-        
         # Communication 탭
         self.communication_tab = CommunicationTab(self.robot_settings, self.comm_manager)
         tabs.addTab(self.communication_tab, "Communication")
@@ -195,6 +190,10 @@ class MyMainWindow(QMainWindow):
                     if hasattr(camera_widget, 'save_offsets_to_csv'):
                         camera_widget.save_offsets_to_csv()
             
+            # Main 탭의 로컬 카메라 정리
+            if hasattr(self, 'main_tab') and hasattr(self.main_tab, 'cleanup'):
+                self.main_tab.cleanup()
+
             print("✅ 모든 좌표 메모리 저장 완료")
         except Exception as e:
             print(f"⚠️ 종료 시 저장 오류: {str(e)}")
