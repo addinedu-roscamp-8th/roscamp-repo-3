@@ -3,7 +3,7 @@
 """
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64MultiArray, Bool, Int32
+from std_msgs.msg import Float64MultiArray, Bool, Int32, Float32
 from sensor_msgs.msg import JointState
 from lovo_interfaces.msg import CaptureImageWithCommand
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -151,6 +151,8 @@ class RobotArmController(Node, QObject):
         self._topic_publishers['goal_pose'] = self.create_publisher(Float64MultiArray, f'/{robot_id}/PTP_goal_pose', 10)
         # legacy publisher for explicit angles if used elsewhere
         self._topic_publishers['angles'] = self.create_publisher(Float64MultiArray, f'/{robot_id}/PTP_angles', 10)
+        # packing order command
+        self._topic_publishers['order_command'] = self.create_publisher(Float32, f'/{robot_id}/picking/order_command', 10)
         # Camera payload publisher: custom message (image + command)
         capture_pub = self.create_publisher(
             CaptureImageWithCommand,

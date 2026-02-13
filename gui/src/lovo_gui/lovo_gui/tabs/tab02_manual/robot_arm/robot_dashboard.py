@@ -4,7 +4,7 @@
 import time
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
-    QGridLayout, QScrollArea, QLineEdit, QCheckBox, QSizePolicy
+    QGridLayout, QScrollArea, QLineEdit, QCheckBox, QSizePolicy, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtGui import QFont, QImage, QPixmap
@@ -287,7 +287,67 @@ class RobotDashboardWidget(QWidget):
             btn_vbox.addWidget(pm_btn)
             c_grid.addLayout(btn_vbox, 7, m_idx + 3)
         
+
         main_layout.addLayout(c_grid)
+
+        # ==================== Order Command UI ====================
+        order_group = QGroupBox("📦 Order Command")
+        order_group.setStyleSheet("""
+            QGroupBox { 
+                font-size: 11px; 
+                font-weight: bold;
+                padding-top: 10px; 
+                margin-top: 5px; 
+            }
+        """)
+        order_layout = QHBoxLayout()
+        order_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # 라벨
+        order_layout.addWidget(QLabel("Value:"))
+        
+        # 실수 입력 (SpinBox)
+        self.order_input = QDoubleSpinBox()
+        self.order_input.setRange(-9999.0, 9999.0)
+        self.order_input.setDecimals(4)
+        self.order_input.setSingleStep(0.0001)
+        self.order_input.setValue(0.0)
+        self.order_input.setFixedWidth(100)
+        self.order_input.setFixedHeight(30)
+        self.order_input.setStyleSheet("""
+            QDoubleSpinBox {
+                border: 1px solid #555;
+                background-color: #2d2d2d;
+                color: white;
+                padding: 2px;
+            }
+        """)
+        order_layout.addWidget(self.order_input)
+        
+        # 전송 버튼
+        self.btn_send_order = QPushButton("📤 Send Order")
+        self.btn_send_order.setFixedSize(100, 30)
+        self.btn_send_order.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3e8e41;
+            }
+        """)
+        self.btn_send_order.clicked.connect(self._send_order_command)
+        order_layout.addWidget(self.btn_send_order)
+        
+        order_layout.addStretch()
+        order_group.setLayout(order_layout)
+        main_layout.addWidget(order_group)
+        # ==========================================================
         
         # ==================== 현재 엔코더 각도 표시 섹션 ====================
         abs_angle_group = QGroupBox("🔧 현재 엔코더 각도 (Current Encoder Angles)")
@@ -501,3 +561,37 @@ class RobotDashboardWidget(QWidget):
             pose_mem_btn_layout.addLayout(btn_v_layout)
         pose_mem_btn_layout.addStretch()
         return pose_mem_btn_layout
+
+    def _send_order_command(self):
+        """Order Command 전송 (ROS2 Topic: /packing/order_command)"""
+        if not self.controller:
+            msg = f"⚠️ {self.robot_name} 컨트롤러가 연결되지 않았습니다!"
+            print(msg)
+            self.work_log_signal.emit(msg)
+            return
+
+        try:
+            value = float(self.order_input.value())
+            
+            # RobotController에서 publisher 가져오기
+            pub = self.controller.get_publisher('order_command')
+            
+            if pub:
+                from std_msgs.msg import Float32
+                msg = Float32()
+                msg.data = value
+                pub.publish(msg)
+                
+                log_msg = f"📤 Order Command 전송: {value}"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+            else:
+                log_msg = "⚠️ 'order_command' publisher를 찾을 수 없습니다"
+                print(log_msg)
+                self.work_log_signal.emit(log_msg)
+                
+        except Exception as e:
+            log_msg = f"❌ Order Command 전송 실패: {e}"
+            print(log_msg)
+            self.work_log_signal.emit(log_msg)
+

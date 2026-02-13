@@ -329,6 +329,7 @@ class CameraWidget(QWidget):
             self.camera_extra_group.setLayout(extra_layout)
             layout.addWidget(self.camera_extra_group)
         
+
         # 파라미터 섹션: ArUco 및 좌표 변환 관련 UI/변수는 제거됨
 
         layout.addStretch()

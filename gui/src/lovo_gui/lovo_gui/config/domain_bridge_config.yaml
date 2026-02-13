@@ -62,6 +62,18 @@ topics:
     to_domain: 61
     remap: /PTP_goal_pose
 
+  /robot1/picking/order_command:
+    type: std_msgs/msg/Float32
+    from_domain: 70
+    to_domain: 60
+    remap: /picking/order_command
+
+  /robot2/picking/order_command:
+    type: std_msgs/msg/Float32
+    from_domain: 70
+    to_domain: 61
+    remap: /picking/order_command
+
   /robot1/PTP_capture_image_with_command/compressed:
     type: lovo_interfaces/msg/CaptureImageWithCommand
     from_domain: 70
