@@ -1,0 +1,79 @@
+# bridge_robotarm.yaml
+# Main Server (Domain 59) <-> Robot Arms (Domain 60, 61)
+# Uses List format to separate topics by Domain Pair, avoiding name collisions
+
+# ==========================================
+# Robot 1 (Picking): 59 -> 60 (Commands)
+# ==========================================
+- from_domain: 59
+  to_domain: 60
+  topics:
+    /robot1/PTP_gripper_command:
+      type: std_msgs/msg/Int32
+      remap: /PTP_gripper_command
+    /robot1/PTP_servo_status:
+      type: std_msgs/msg/Bool
+      remap: /PTP_servo_status
+    /robot1/PTP_goal_pose:
+      type: std_msgs/msg/Float64MultiArray
+      remap: /PTP_goal_pose
+    /robot1/order_command:
+      type: std_msgs/msg/Float64
+      remap: /order_command
+    /robot1/PTP_capture_image_with_command/compressed:
+      type: lovo_interfaces/msg/CaptureImageWithCommand
+      remap: /PTP_capture_image_with_command/compressed
+
+# ==========================================
+# Robot 1 (Picking): 60 -> 59 (States)
+# ==========================================
+- from_domain: 60
+  to_domain: 59
+  topics:
+    /joint_states:
+      type: sensor_msgs/msg/JointState
+      remap: /robot1/joint_states
+    /PTP_tcp_pose:
+      type: std_msgs/msg/Float64MultiArray
+      remap: /robot1/PTP_tcp_pose
+    /robot_state:
+      type: std_msgs/msg/Int8
+      remap: /robot1/robot_state
+
+# ==========================================
+# Robot 2 (Packing): 59 -> 61 (Commands)
+# ==========================================
+- from_domain: 59
+  to_domain: 61
+  topics:
+    /robot2/PTP_gripper_command:
+      type: std_msgs/msg/Int32
+      remap: /PTP_gripper_command
+    /robot2/PTP_servo_status:
+      type: std_msgs/msg/Bool
+      remap: /PTP_servo_status
+    /robot2/PTP_goal_pose:
+      type: std_msgs/msg/Float64MultiArray
+      remap: /PTP_goal_pose
+    /robot2/order_command:
+      type: std_msgs/msg/Float64
+      remap: /order_command
+    /robot2/PTP_capture_image_with_command/compressed:
+      type: lovo_interfaces/msg/CaptureImageWithCommand
+      remap: /PTP_capture_image_with_command/compressed
+
+# ==========================================
+# Robot 2 (Packing): 61 -> 59 (States)
+# ==========================================
+- from_domain: 61
+  to_domain: 59
+  topics:
+    /joint_states:
+      type: sensor_msgs/msg/JointState
+      remap: /robot2/joint_states
+    /PTP_tcp_pose:
+      type: std_msgs/msg/Float64MultiArray
+      remap: /robot2/PTP_tcp_pose
+    /robot_state:
+      type: std_msgs/msg/Int8
+      remap: /robot2/robot_state
