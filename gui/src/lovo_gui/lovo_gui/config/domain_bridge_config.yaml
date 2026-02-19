@@ -27,24 +27,25 @@ topics:
       to_domain: 61
       remap: /PTP_servo_status
 
-  /joint_states:
+  /robot1/joint_states:
     type: sensor_msgs/msg/JointState
     from_domain: 60
     to_domain: 70
     remap: /robot1/joint_states
 
-  /joint_states:
+  /robot2/joint_states:
     type: sensor_msgs/msg/JointState
     from_domain: 61
     to_domain: 70
     remap: /robot2/joint_states
 
-  /PTP_tcp_pose:
+  /robot1/PTP_tcp_pose:
     type: std_msgs/msg/Float64MultiArray
     from_domain: 60
     to_domain: 70
     remap: /robot1/PTP_tcp_pose
-  /PTP_tcp_pose:
+
+  /robot2/PTP_tcp_pose:
     type: std_msgs/msg/Float64MultiArray
     from_domain: 61
     to_domain: 70
