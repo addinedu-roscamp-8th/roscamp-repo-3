@@ -20,9 +20,17 @@ numpy>=1.24.0
 
 ## 🔧 설치 및 실행 가이드
 
-### 1. Virtual Environment 활성화
+### 1. Virtual Environment 생성
 
-먼저 mycobot 가상 환경을 활성화합니다:
+mycobot 가상 환경을 생성합니다:
+
+```bash
+python3.10 -m venv ~/mycobot
+```
+
+### 2. Virtual Environment 활성화
+
+생성된 mycobot 가상 환경을 활성화합니다:
 
 ```bash
 source ~/mycobot/bin/activate
@@ -34,13 +42,13 @@ which python  # should show path to ~/mycobot/bin/python
 python --version  # should show Python 3.10+
 ```
 
-### 2. ROS2 환경 설정
+### 3. ROS2 환경 설정
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 ```
 
-### 3. 의존성 설치 (rosdep)
+### 4. 의존성 설치 (rosdep)
 
 workspace의 jetcobot 폴더로 이동하여 rosdep 실행:
 
@@ -53,7 +61,7 @@ rosdep install -i --from-path src --rosdistro $ROS_DISTRO -y
 
 **주의:** 이 명령어는 ROS 패키지의 native dependencies를 자동으로 설치합니다.
 
-### 4. Python 패키지 설치
+### 5. Python 패키지 설치
 
 ```bash
 pip install --upgrade pip
@@ -71,7 +79,7 @@ pip install scipy
 pip install pymoveit2 opencv-python opencv-contrib-python PyYAML numpy scipy
 ```
 
-### 5. Workspace 빌드
+### 6. Workspace 빌드
 
 ```bash
 cd /home/addinedu/lovo/roscamp-repo-3/jetcobot
@@ -88,7 +96,7 @@ source install/setup.bash
 
 **참고:** `colcon build`는 jetcobot 폴더 내에서 실행해야 합니다. jetcobot이 workspace root입니다.
 
-### 6. 실행
+### 7. 실행
 
 ```bash
 # 1. Launch 파일로 실행 (MoveIt 및 other components 포함)
@@ -199,6 +207,7 @@ python -c "import pymoveit2; print(pymoveit2.__version__)"
 
 시작 전 다음 항목들을 확인하세요:
 
+- [ ] venv 생성: `python3.10 -m venv ~/mycobot`
 - [ ] venv 활성화: `source ~/mycobot/bin/activate`
 - [ ] ROS2 sourced: `source /opt/ros/jazzy/setup.bash`
 - [ ] rosdep 설치 완료: `rosdep install -i --from-path src --rosdistro $ROS_DISTRO -y`
