@@ -1,0 +1,10 @@
+{
+  "extraPaths": [
+    "src/jetcobot_PC/jetcobot_bringup/src",
+    "install/jetcobot_bringup/lib/python3.12/site-packages"
+  ],
+  "exclude": [
+    "**/build",
+    "**/install"
+  ]
+}
