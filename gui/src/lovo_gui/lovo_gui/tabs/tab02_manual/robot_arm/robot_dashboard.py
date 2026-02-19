@@ -47,6 +47,8 @@ class RobotDashboardWidget(QWidget):
         super().__init__(parent)
         self.robot_name = robot_name
         self.robot_key = robot_key
+        self.controller = None
+        self.connection_state_label = None
 
         # 메모리 (슬롯 개수 변수화)
         self.pose_memory = {i: [0.0]*6 for i in range(1, MEMORY_SLOT_COUNT+1)}
@@ -113,13 +115,24 @@ class RobotDashboardWidget(QWidget):
         robot_layout.setContentsMargins(UI_SPACING, UI_SPACING, UI_SPACING, UI_SPACING)
         robot_layout.setSpacing(UI_SPACING)
         
-        # 1. System Control
+        # 1. System Control + Connection Status (same row)
+        top_row_layout = QHBoxLayout()
+        top_row_layout.setSpacing(UI_SPACING)
+
         sys_group = self._create_system_control()
         # Make system group visible with a reasonable minimum width
         sys_group.setMinimumWidth(600)
         sys_group.setMinimumHeight(80)
         sys_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        robot_layout.addWidget(sys_group)
+        top_row_layout.addWidget(sys_group, 1)
+
+        conn_group = self._create_connection_status_group()
+        conn_group.setMinimumHeight(80)
+        conn_group.setFixedWidth(300)
+        conn_group.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        top_row_layout.addWidget(conn_group, 0)
+
+        robot_layout.addLayout(top_row_layout)
         
         # 2. 좌표 컨트롤러
         cart_group = self._create_cartesian_controller()
@@ -182,6 +195,57 @@ class RobotDashboardWidget(QWidget):
         sys_h_layout.addStretch()
         sys_group.setLayout(sys_h_layout)
         return sys_group
+
+    def _create_connection_status_group(self):
+        """System Control 옆 통신 상태 그룹"""
+        conn_group = QGroupBox("통신 상태")
+        conn_group.setFixedHeight(90)
+        conn_group.setFixedWidth(300)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(2)
+
+        self.connection_state_label = QLabel()
+        self.connection_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._set_connection_status_text("Unknown", "#616161")
+
+        layout.addStretch()
+        layout.addWidget(self.connection_state_label)
+        layout.addStretch()
+        conn_group.setLayout(layout)
+        return conn_group
+
+    def set_connection_state(self, ros_connected=None, ping_connected=None, camera_connected=None):
+        """시스템 컨트롤 영역 연결 상태 표시 갱신"""
+        if not self.connection_state_label:
+            return
+
+        if ros_connected is True:
+            text = "ROS Online"
+            color = "#1e7e34"
+        elif ping_connected is True:
+            text = "Ping Online"
+            color = "#ef6c00"
+        elif ros_connected is False or ping_connected is False:
+            text = "Offline"
+            color = "#b71c1c"
+        else:
+            text = "Unknown"
+            color = "#616161"
+
+        if camera_connected is True:
+            text = f"{text} | CAM"
+        elif camera_connected is False:
+            text = f"{text} | No CAM"
+
+        self._set_connection_status_text(text, color)
+
+    def _set_connection_status_text(self, text, color):
+        self.connection_state_label.setText(f"●  {text}")
+        self.connection_state_label.setStyleSheet(
+            f"font-size: 14px; color: {color}; font-weight: bold;"
+        )
     
 
     def _create_cartesian_controller(self):
@@ -594,4 +658,3 @@ class RobotDashboardWidget(QWidget):
             log_msg = f"❌ Order Command 전송 실패: {e}"
             print(log_msg)
             self.work_log_signal.emit(log_msg)
-

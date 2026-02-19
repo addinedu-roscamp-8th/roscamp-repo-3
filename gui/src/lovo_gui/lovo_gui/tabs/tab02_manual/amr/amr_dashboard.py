@@ -24,6 +24,7 @@ class AMRDashboardWidget(QWidget):
         # UI 위젯 참조
         self.status_label = None
         self.battery_label = None
+        self.connection_state_label = None
         self.position_labels = {}  # x, y, theta
         self.velocity_labels = {}  # linear, angular
         
@@ -69,24 +70,31 @@ class AMRDashboardWidget(QWidget):
         group = QGroupBox("🤖 시스템 상태")
         group.setFont(self.main_font)
         layout = QGridLayout()
+
+        conn_title = QLabel("통신:")
+        layout.addWidget(conn_title, 0, 0)
+        self.connection_state_label = QLabel()
+        self.connection_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._set_connection_status_text("Unknown", "#616161")
+        layout.addWidget(self.connection_state_label, 0, 1)
         
         # 상태
-        layout.addWidget(QLabel("로봇 상태:"), 0, 0)
+        layout.addWidget(QLabel("로봇 상태:"), 1, 0)
         self.status_label = QLabel("대기 중")
         self.status_label.setStyleSheet("color: #FFA500; font-weight: bold;")
-        layout.addWidget(self.status_label, 0, 1)
+        layout.addWidget(self.status_label, 1, 1)
         
         # 배터리
-        layout.addWidget(QLabel("배터리:"), 1, 0)
+        layout.addWidget(QLabel("배터리:"), 2, 0)
         self.battery_label = QLabel("0%")
         self.battery_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
-        layout.addWidget(self.battery_label, 1, 1)
+        layout.addWidget(self.battery_label, 2, 1)
         
         # 모드
-        layout.addWidget(QLabel("주행 모드:"), 2, 0)
+        layout.addWidget(QLabel("주행 모드:"), 3, 0)
         mode_combo = QComboBox()
         mode_combo.addItems(["자율주행", "수동조작", "일시정지"])
-        layout.addWidget(mode_combo, 2, 1)
+        layout.addWidget(mode_combo, 3, 1)
         
         group.setLayout(layout)
         return group
@@ -318,3 +326,34 @@ class AMRDashboardWidget(QWidget):
         
         color = status_colors.get(status, "#757575")
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+    def set_connection_state(self, ros_connected=None, ping_connected=None, camera_connected=None):
+        """시스템 상태 섹션 연결 상태 표시 갱신"""
+        if not self.connection_state_label:
+            return
+
+        if ros_connected is True:
+            text = "ROS Online"
+            color = "#1e7e34"
+        elif ping_connected is True:
+            text = "Ping Online"
+            color = "#ef6c00"
+        elif ros_connected is False or ping_connected is False:
+            text = "Offline"
+            color = "#b71c1c"
+        else:
+            text = "Unknown"
+            color = "#616161"
+
+        if camera_connected is True:
+            text = f"{text} | CAM"
+        elif camera_connected is False:
+            text = f"{text} | No CAM"
+
+        self._set_connection_status_text(text, color)
+
+    def _set_connection_status_text(self, text, color):
+        self.connection_state_label.setText(f"●  {text}")
+        self.connection_state_label.setStyleSheet(
+            f"font-size: 14px; color: {color}; font-weight: bold;"
+        )

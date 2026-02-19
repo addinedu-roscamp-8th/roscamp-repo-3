@@ -152,7 +152,7 @@ class MyMainWindow(QMainWindow):
         tabs.addTab(self.communication_tab, "Communication")
         
         # ROS Monitor 탭
-        self.ros_monitor_tab = RosMonitorTab()
+        self.ros_monitor_tab = RosMonitorTab(self.comm_manager)
         tabs.addTab(self.ros_monitor_tab, "ROS Monitor")
         
         # Log 탭
@@ -161,6 +161,7 @@ class MyMainWindow(QMainWindow):
         
         # Manual 탭에 컨트롤러 연결
         self.manual_tab.connect_controllers(self.communication_tab)
+        self.manual_tab.bind_connection_state_store(self.comm_manager)
         
         # ROS Monitor 탭에 로봇 컨트롤러 전달
         self.ros_monitor_tab.set_robot_controllers(self.communication_tab.robot_controllers)

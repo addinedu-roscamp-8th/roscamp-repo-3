@@ -24,6 +24,9 @@ class CommunicationTab(QWidget):
         self.comm_manager = comm_manager
         self.conn_table = None
         self.comm_log_viewer = None
+        self.server_status_label = None
+        self.robot_row_by_id = {}       # {robot_id: row_index}
+        self.robot_status_by_id = {}    # {robot_id: QLabel}
         
         # 로봇 컨트롤러들
         self.robot_controllers = {}  # {robot_id: RobotArmController}
@@ -36,6 +39,7 @@ class CommunicationTab(QWidget):
         self.domain_bridge_process = None
         
         self._setup_ui()
+        self._bind_connection_state_store()
         self._init_robot_controllers()
     
     def _init_robot_controllers(self):
@@ -91,6 +95,9 @@ class CommunicationTab(QWidget):
                 robot_ip, camera_port,
                 robot_controller=self.robot_controllers.get(robot_id)
             )
+            camera_controller.connection_changed.connect(
+                lambda connected, r_id=robot_id: self._on_camera_connection_changed(r_id, connected)
+            )
             self.camera_controllers[robot_id] = camera_controller
             
             self.comm_manager.log(f"{robot_name} 카메라 컨트롤러 초기화 완료 (UDP Port: {camera_port})")
@@ -104,6 +111,9 @@ class CommunicationTab(QWidget):
     
     def _on_robot_connection_changed(self, robot_id, connected):
         """로봇 연결 상태 변경 시"""
+        if hasattr(self.comm_manager, "state_store"):
+            self.comm_manager.state_store.set_robot_ros(robot_id, connected)
+
         # 테이블에서 해당 로봇 찾아서 상태 업데이트
         robots = self.robot_settings.get_robots()
         for idx, robot in enumerate(robots):
@@ -112,14 +122,17 @@ class CommunicationTab(QWidget):
                 status_widget = self.conn_table.cellWidget(row, 1)
                 if status_widget:
                     if connected:
-                        status_widget.setText("🟢 Online")
-                        status_widget.setStyleSheet("color: green; font-weight: bold;")
+                        self._set_status_label(status_widget, "Online (ROS)", "green")
                         self.comm_manager.log(f"✅ {robot.get('name')} 연결됨")
                     else:
-                        status_widget.setText("🔴 Offline")
-                        status_widget.setStyleSheet("color: red; font-weight: bold;")
+                        self._set_status_label(status_widget, "Offline", "red")
                         self.comm_manager.log(f"❌ {robot.get('name')} 연결 끊김")
                 break
+
+    def _on_camera_connection_changed(self, robot_id, connected):
+        """카메라 연결 상태 변경 시 공통 상태 업데이트"""
+        if hasattr(self.comm_manager, "state_store"):
+            self.comm_manager.state_store.set_robot_camera(robot_id, connected)
     
     def get_robot_controller(self, robot_id):
         """로봇 컨트롤러 반환"""
@@ -149,6 +162,64 @@ class CommunicationTab(QWidget):
         # 샘플 로그
         self.comm_manager.log("시스템 시작")
         self.comm_manager.log("로봇 연결 대기 중...")
+
+    def _bind_connection_state_store(self):
+        """공통 상태 스토어 시그널 구독"""
+        if not hasattr(self.comm_manager, "state_store"):
+            return
+        self.comm_manager.state_store.server_state_changed.connect(self._on_server_state_changed)
+        self.comm_manager.state_store.robot_state_changed.connect(self._on_robot_state_changed)
+
+    def _on_server_state_changed(self, reachable):
+        if not self.server_status_label:
+            return
+        if reachable is True:
+            self._set_status_label(self.server_status_label, "Online", "green")
+        elif reachable is False:
+            self._set_status_label(self.server_status_label, "Offline", "red")
+        else:
+            self._set_status_label(self.server_status_label, "Unknown", "gray")
+
+    def _on_robot_state_changed(self, robot_id, state):
+        label = self.robot_status_by_id.get(robot_id)
+        if not label:
+            return
+
+        ros_connected = state.get("ros_connected")
+        ping_connected = state.get("ping_connected")
+        camera_connected = state.get("camera_connected")
+
+        if ros_connected is True:
+            text = "🟢 Online (ROS)"
+            style = "color: green; font-weight: bold;"
+        elif ping_connected is True:
+            text = "🟡 Reachable (Ping)"
+            style = "color: #d17b00; font-weight: bold;"
+        elif ros_connected is False or ping_connected is False:
+            text = "🔴 Offline"
+            style = "color: red; font-weight: bold;"
+        else:
+            text = "⚪ Unknown"
+            style = "color: gray; font-weight: bold;"
+
+        if camera_connected is True:
+            text = f"{text} | CAM"
+        elif camera_connected is False:
+            text = f"{text} | No CAM"
+
+        color = "gray"
+        if "green" in style:
+            color = "green"
+        elif "#d17b00" in style:
+            color = "#d17b00"
+        elif "red" in style:
+            color = "red"
+        self._set_status_label(label, text.replace("🟢 ", "").replace("🟡 ", "").replace("🔴 ", "").replace("⚪ ", ""), color)
+
+    def _set_status_label(self, label, text, color):
+        label.setText(f"●  {text}")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(f"color: {color}; font-weight: bold;")
     
     def _create_connection_table(self):
         """연결 상태 테이블"""
@@ -197,9 +268,10 @@ class CommunicationTab(QWidget):
         
         self.conn_table.setItem(0, 0, QTableWidgetItem("서버"))
         
-        server_status = QLabel("🔴 Offline")
+        server_status = QLabel("●  Offline")
         server_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.conn_table.setCellWidget(0, 1, server_status)
+        self.server_status_label = server_status
         
         self.conn_table.setItem(0, 2, QTableWidgetItem(str(server_domain)))
         
@@ -220,14 +292,17 @@ class CommunicationTab(QWidget):
         name = robot.get("name", f"로봇 {idx+1}")
         ip = robot.get("ip", "")
         domain = robot.get("domain", "N/A")
+        robot_id = robot.get("id", f"robot{idx+1}")
         
         # 이름
         self.conn_table.setItem(row, 0, QTableWidgetItem(name))
         
         # 상태
-        status_label = QLabel("🔴 Offline")
+        status_label = QLabel("●  Offline")
         status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.conn_table.setCellWidget(row, 1, status_label)
+        self.robot_row_by_id[robot_id] = row
+        self.robot_status_by_id[robot_id] = status_label
         
         # 도메인 ID
         self.conn_table.setItem(row, 2, QTableWidgetItem(str(domain)))
@@ -242,7 +317,9 @@ class CommunicationTab(QWidget):
         connect_btn = QPushButton("Connect")
         connect_btn.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
         connect_btn.clicked.connect(
-            lambda: self.comm_manager.check_connection(ip_input.text(), status_label, name)
+            lambda: self.comm_manager.check_connection(
+                ip_input.text(), status_label, name, robot_id=robot_id
+            )
         )
         self.conn_table.setCellWidget(row, 4, connect_btn)
     

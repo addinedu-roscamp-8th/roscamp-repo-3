@@ -10,14 +10,16 @@ from PyQt6.QtCore import Qt, QTimer
 class RosMonitorTab(QWidget):
     """ROS 통신 모니터링 탭"""
     
-    def __init__(self, parent=None):
+    def __init__(self, comm_manager=None, parent=None):
         super().__init__(parent)
+        self.comm_manager = comm_manager
         self.robots = []
         self.robot_controllers = {}
         self.frames_dict = {}  # {robot_id: frame}
         self.topic_values = {}  # {robot_id: {topic_name: value}}
         self._load_robot_config()
         self._setup_ui()
+        self._bind_connection_state_store()
         self._setup_status_update_timer()
     
     def _load_robot_config(self):
@@ -103,6 +105,28 @@ class RosMonitorTab(QWidget):
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self._update_all_status)
         self.update_timer.start(500)  # 500ms마다 업데이트
+
+    def _bind_connection_state_store(self):
+        """공통 연결 상태 스토어 구독"""
+        if not self.comm_manager or not hasattr(self.comm_manager, "state_store"):
+            return
+        self.comm_manager.state_store.robot_state_changed.connect(self._on_robot_state_changed)
+
+    def _on_robot_state_changed(self, robot_id, state):
+        frame = self.frames_dict.get(robot_id)
+        if not frame:
+            return
+        ros_connected = state.get("ros_connected")
+        ping_connected = state.get("ping_connected")
+        if ros_connected is True:
+            is_connected = True
+        elif ping_connected is True:
+            is_connected = True
+        elif ros_connected is False or ping_connected is False:
+            is_connected = False
+        else:
+            return
+        self._update_frame_status(frame, is_connected)
     
     def _update_all_status(self):
         """모든 로봇의 상태 업데이트"""
@@ -111,6 +135,16 @@ class RosMonitorTab(QWidget):
                 controller = self.robot_controllers[robot_id]
                 is_connected = controller.robot_connected
                 self._update_frame_status(frame, is_connected)
+                continue
+
+            if self.comm_manager and hasattr(self.comm_manager, "state_store"):
+                state = self.comm_manager.state_store.get_robot_state(robot_id)
+                ros_connected = state.get("ros_connected")
+                ping_connected = state.get("ping_connected")
+                if ros_connected is True or ping_connected is True:
+                    self._update_frame_status(frame, True)
+                elif ros_connected is False or ping_connected is False:
+                    self._update_frame_status(frame, False)
     
     def _update_frame_status(self, frame, is_connected):
         """프레임의 연결 상태 업데이트"""

@@ -170,6 +170,7 @@ class MainTab(QWidget):
         self._topview_drag_last_pos = None
         
         self._setup_ui()
+        self._bind_connection_state_store()
 
         # 시작 시 1회 자동 연결 시도 (USB 탑뷰 카메라만 대상)
         QTimer.singleShot(0, self._auto_connect_topview_camera)
@@ -182,6 +183,46 @@ class MainTab(QWidget):
     def cleanup(self):
         """리소스 정리"""
         self.disconnect_topview_camera()
+
+    def _bind_connection_state_store(self):
+        """공통 연결 상태 스토어 구독"""
+        if not hasattr(self.comm_manager, "state_store"):
+            return
+        self.comm_manager.state_store.robot_state_changed.connect(self._on_robot_state_changed)
+
+    def _on_robot_state_changed(self, robot_id, state):
+        labels = self.robot_status_labels.get(robot_id)
+        if not labels:
+            return
+
+        ros_connected = state.get("ros_connected")
+        ping_connected = state.get("ping_connected")
+
+        status_label = labels.get("status")
+        if status_label is None:
+            return
+
+        if ros_connected is True:
+            self._set_status_cell_text(status_label, "ROS Online", "#1e7e34")
+        elif ping_connected is True:
+            self._set_status_cell_text(status_label, "Ping Online", "#ef6c00")
+        elif ros_connected is False or ping_connected is False:
+            self._set_status_cell_text(status_label, "Offline", "#b71c1c")
+        else:
+            self._set_status_cell_text(status_label, "Unknown", "#616161")
+
+    def _set_status_cell_text(self, label, text, color):
+        """통신 상태 셀 텍스트 갱신 (한 칸에 점+문구, 가운데 정렬)"""
+        label.setText(f"●  {text}")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(f"""
+            background-color: white;
+            color: {color};
+            font-size: 12px;
+            font-weight: bold;
+            padding: 8px;
+            border: 1px solid #ccc;
+        """)
 
     def is_topview_camera_connected(self):
         """탑뷰 카메라 연결 상태"""
@@ -348,9 +389,9 @@ class MainTab(QWidget):
                 bat = data.get('battery_percent', 0)
                 labels['battery'].setText(f"{bat}%")
                 
-                # 상태 텍스트
-                state = data.get('action_state', 'Unknown')
-                labels['state'].setText(state)
+                # 로봇 하는일 텍스트
+                work = data.get('action_state', '업무 대기')
+                labels['work'].setText(work)
                 
                 # 연결 표시 (데이터가 들어오면 온라인으로 간주)
                 # 하지만 로봇 직접 연결(Ping)과 서버 DB상 상태는 다를 수 있음
@@ -610,7 +651,7 @@ class MainTab(QWidget):
         grid_layout.setContentsMargins(0, 0, 0, 0)
         
         # 헤더
-        headers = ["로봇 이름", "통신 연결 상태", "배터리 잔량", "현재 상태", "캠 연결"]
+        headers = ["로봇 이름", "통신 연결 상태", "로봇 하는일", "배터리 잔량", "캠 연결"]
         for col, header in enumerate(headers):
             header_label = QLabel(header)
             header_label.setStyleSheet("""
@@ -623,6 +664,13 @@ class MainTab(QWidget):
             """)
             header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             grid_layout.addWidget(header_label, 0, col)
+
+        # 통신/업무 칸을 분리해 보이도록 컬럼 비율 설정
+        grid_layout.setColumnStretch(0, 1)
+        grid_layout.setColumnStretch(1, 1)
+        grid_layout.setColumnStretch(2, 8)
+        grid_layout.setColumnStretch(3, 1)
+        grid_layout.setColumnStretch(4, 1)
         
         # 로봇별 정보
         robots = self.robot_settings.get_robots()
@@ -643,29 +691,22 @@ class MainTab(QWidget):
             grid_layout.addWidget(name_label, row, 0)
             
             # 통신 연결 상태
-            status_widget = QWidget()
-            status_layout = QHBoxLayout(status_widget)
-            status_layout.setContentsMargins(5, 0, 5, 0)
-            status_layout.setSpacing(5)
+            status_label = QLabel()
+            self._set_status_cell_text(status_label, "Offline", "#b71c1c")
+            grid_layout.addWidget(status_label, row, 1)
             
-            indicator = QFrame()
-            indicator.setFixedSize(15, 15)
-            indicator.setStyleSheet("""
-                background-color: #dc3545;
-                border-radius: 7px;
-                border: 1px solid #bd2130;
+            # 로봇 하는일
+            work_label = QLabel("업무 대기")
+            work_label.setStyleSheet("""
+                background-color: white;
+                color: black;
+                font-size: 12px;
+                padding: 8px;
+                border: 1px solid #ccc;
             """)
-            
-            status_text = QLabel("Offline")
-            status_text.setStyleSheet("color: black; font-size: 12px;")
-            
-            status_layout.addWidget(indicator)
-            status_layout.addWidget(status_text)
-            status_layout.addStretch()
-            
-            status_widget.setStyleSheet("background-color: white; border: 1px solid #ccc;")
-            grid_layout.addWidget(status_widget, row, 1)
-            
+            work_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            grid_layout.addWidget(work_label, row, 2)
+
             # 배터리 잔량
             battery_label = QLabel("-")
             battery_label.setStyleSheet("""
@@ -676,19 +717,7 @@ class MainTab(QWidget):
                 border: 1px solid #ccc;
             """)
             battery_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            grid_layout.addWidget(battery_label, row, 2)
-            
-            # 현재 상태
-            state_label = QLabel("-")
-            state_label.setStyleSheet("""
-                background-color: white;
-                color: black;
-                font-size: 12px;
-                padding: 8px;
-                border: 1px solid #ccc;
-            """)
-            state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            grid_layout.addWidget(state_label, row, 3)
+            grid_layout.addWidget(battery_label, row, 3)
             
             # 캠 연결 버튼
             cam_btn = QPushButton("📷 CAM")
@@ -720,10 +749,9 @@ class MainTab(QWidget):
             
             # 나중에 업데이트를 위해 저장
             self.robot_status_labels[robot_id] = {
-                'status_indicator': indicator,
-                'status_text': status_text,
+                'status': status_label,
                 'battery': battery_label,
-                'state': state_label
+                'work': work_label
             }
 
     def _create_camera_view(self):

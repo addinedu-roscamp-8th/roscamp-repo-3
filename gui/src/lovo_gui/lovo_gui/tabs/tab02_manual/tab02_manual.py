@@ -45,7 +45,7 @@ class ManualTab(QWidget):
             left_layout = QVBoxLayout(left_widget)
             left_layout.setContentsMargins(10, 10, 10, 10)
             left_layout.setSpacing(10)
-            
+
             # 카메라 위젯
             camera_widget = CameraWidget(name)
             self.camera_widgets[robot_id] = camera_widget
@@ -122,7 +122,24 @@ class ManualTab(QWidget):
                 # 로봇 대시보드 참조 설정 (좌표 저장용)
                 if hasattr(self.camera_widgets[robot_id], 'set_robot_dashboard'):
                     self.camera_widgets[robot_id].set_robot_dashboard(dashboard)
-    
+
+    def bind_connection_state_store(self, comm_manager):
+        """공통 연결 상태 스토어 구독"""
+        if not hasattr(comm_manager, "state_store"):
+            return
+        comm_manager.state_store.robot_state_changed.connect(self._on_robot_state_changed)
+
+    def _on_robot_state_changed(self, robot_id, state):
+        dashboard = self.dashboard_widgets.get(robot_id)
+        if not dashboard or not hasattr(dashboard, "set_connection_state"):
+            return
+
+        dashboard.set_connection_state(
+            ros_connected=state.get("ros_connected"),
+            ping_connected=state.get("ping_connected"),
+            camera_connected=state.get("camera_connected"),
+        )
+
     def update_tab_name(self, robot_id, new_name):
         """탭 이름 업데이트"""
         tab_index = self.robot_tab_widgets.get(robot_id)
