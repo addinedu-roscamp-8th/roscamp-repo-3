@@ -25,7 +25,7 @@ numpy>=1.24.0
 mycobot 가상 환경을 생성합니다:
 
 ```bash
-python3.10 -m venv ~/mycobot
+python3 -m venv ~/venv/mycobot
 ```
 
 ### 2. Virtual Environment 활성화
@@ -33,12 +33,12 @@ python3.10 -m venv ~/mycobot
 생성된 mycobot 가상 환경을 활성화합니다:
 
 ```bash
-source ~/mycobot/bin/activate
+source ~/venv/mycobot/bin/activate
 ```
 
 **확인:**
 ```bash
-which python  # should show path to ~/mycobot/bin/python
+which python  # should show path to ~/venv/mycobot/bin/python
 python --version  # should show Python 3.10+
 ```
 
@@ -187,7 +187,7 @@ TF lookup failed: frame 'gripper_tcp' does not exist
 
 ```bash
 # Virtual environment 활성화 확인
-echo $VIRTUAL_ENV  # should show ~/mycobot
+echo $VIRTUAL_ENV  # should show ~/venv/mycobot
 
 # ROS2 설정 확인
 echo $ROS_DISTRO  # should show "jazzy"
@@ -207,8 +207,8 @@ python -c "import pymoveit2; print(pymoveit2.__version__)"
 
 시작 전 다음 항목들을 확인하세요:
 
-- [ ] venv 생성: `python3.10 -m venv ~/mycobot`
-- [ ] venv 활성화: `source ~/mycobot/bin/activate`
+- [ ] venv 생성: `python3 -m venv ~/venv/mycobot`
+- [ ] venv 활성화: `source ~/venv/mycobot/bin/activate`
 - [ ] ROS2 sourced: `source /opt/ros/jazzy/setup.bash`
 - [ ] rosdep 설치 완료: `rosdep install -i --from-path src --rosdistro $ROS_DISTRO -y`
 - [ ] workspace 빌드 완료: `colcon build ...`
