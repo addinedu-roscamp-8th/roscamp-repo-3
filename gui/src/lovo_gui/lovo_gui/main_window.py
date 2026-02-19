@@ -52,8 +52,6 @@ class MyMainWindow(QMainWindow):
         """UI 구성"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        # 변수 추가 Test
-        margin_window = 10
         
         # 메인 레이아웃 (수평: 탭 + 사이드바)
         main_layout = QHBoxLayout(central_widget)
@@ -66,13 +64,13 @@ class MyMainWindow(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(left_widget, 1)
         
-        # 오른쪽: 사이드바
-        sidebar = self._create_sidebar()
-        main_layout.addWidget(sidebar)
-        
         # 탭 위젯 생성
         self.tabs = self._create_tabs()
         left_layout.addWidget(self.tabs)
+
+        # 오른쪽: 사이드바
+        sidebar = self._create_sidebar()
+        main_layout.addWidget(sidebar)
     
     def _create_sidebar(self):
         """사이드바 생성"""
@@ -97,6 +95,14 @@ class MyMainWindow(QMainWindow):
         btn_reset.setFixedHeight(SIDEBAR_BUTTON_HEIGHT)
         btn_reset.setStyleSheet(STYLE_BUTTON_YELLOW)
 
+        self.btn_topview_camera = QPushButton()
+        self.btn_topview_camera.setFixedHeight(SIDEBAR_BUTTON_HEIGHT)
+        self.btn_topview_camera.clicked.connect(self._toggle_topview_camera)
+        self._sync_topview_camera_button()
+
+        if hasattr(self, "main_tab") and hasattr(self.main_tab, "topview_camera_state_changed"):
+            self.main_tab.topview_camera_state_changed.connect(self._sync_topview_camera_button)
+
         # 서버 연결 토글 버튼 (인스턴스 속성으로 만들어 상태 변경 가능하게 함)
         if getattr(self.comm_manager, 'server_enabled', False):
             server_text = "서버 연결 해제"
@@ -118,6 +124,7 @@ class MyMainWindow(QMainWindow):
         layout.addWidget(btn_run)
         layout.addWidget(btn_stop)
         layout.addWidget(btn_reset)
+        layout.addWidget(self.btn_topview_camera)
         layout.addWidget(self.btn_server_disconnect)
         layout.addStretch()
         layout.addWidget(btn_exit)
@@ -225,6 +232,29 @@ class MyMainWindow(QMainWindow):
             print(f"[UI] server_enabled set to {new_state}")
         except Exception as e:
             print(f"[UI] _server_disconnect error: {e}")
+
+    def _sync_topview_camera_button(self, *_args):
+        """탑뷰 카메라 버튼 텍스트/스타일 동기화"""
+        connected = bool(
+            hasattr(self, "main_tab")
+            and hasattr(self.main_tab, "is_topview_camera_connected")
+            and self.main_tab.is_topview_camera_connected()
+        )
+        if connected:
+            self.btn_topview_camera.setText("탑뷰카메라 해제")
+            self.btn_topview_camera.setStyleSheet(STYLE_BUTTON_GRAY)
+        else:
+            self.btn_topview_camera.setText("탑뷰카메라 연결")
+            self.btn_topview_camera.setStyleSheet(STYLE_BUTTON_ORANGE)
+
+    def _toggle_topview_camera(self):
+        """탑뷰 카메라 연결/해제 토글"""
+        try:
+            if hasattr(self, "main_tab") and hasattr(self.main_tab, "toggle_topview_camera"):
+                self.main_tab.toggle_topview_camera()
+            self._sync_topview_camera_button()
+        except Exception as e:
+            print(f"[UI] _toggle_topview_camera error: {e}")
 
 
 def main():

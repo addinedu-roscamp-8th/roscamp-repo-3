@@ -6,8 +6,10 @@ from PyQt6.QtWidgets import (
     QGridLayout, QPushButton, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QImage, QPixmap, QPainter
 import cv2
+import glob
+import os
 from datetime import datetime
 from lovo_gui.constants import MAIN_SYSTEM_MAP, MAIN_ORDER_LOG, MAIN_ROBOT_GRID, MAIN_CAMERA_VIEW
 
@@ -21,20 +23,85 @@ CROP_RIGHT = 0     # 오른쪽 자르기
 CAMERA_FLIP_HORIZONTAL = True  # 좌우 반전 (미러링)
 CAMERA_FLIP_VERTICAL = True    # 상하 반전
 
+TOPVIEW_USB_PREFIX = "usb-LKZC_USB_Camera"
+TOPVIEW_V4L_BY_ID_DIR = "/dev/v4l/by-id"
+TOPVIEW_MAX_ZOOM = 5.0
+TOPVIEW_MIN_ZOOM = 1.0
+TOPVIEW_ZOOM_STEP = 1.1
+
+
+class ZoomableCameraLabel(QLabel):
+    """휠 입력을 외부로 전달하는 카메라 라벨"""
+    wheel_zoomed = pyqtSignal(int, float, float)
+    resized = pyqtSignal()
+    drag_started = pyqtSignal(float, float)
+    drag_moved = pyqtSignal(float, float)
+    drag_ended = pyqtSignal()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._dragging = False
+        self.setMouseTracking(True)
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta != 0:
+            pos = event.position()
+            self.wheel_zoomed.emit(delta, float(pos.x()), float(pos.y()))
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resized.emit()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            pos = event.position()
+            self.drag_started.emit(float(pos.x()), float(pos.y()))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            pos = event.position()
+            self.drag_moved.emit(float(pos.x()), float(pos.y()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._dragging:
+            self._dragging = False
+            self.drag_ended.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
 
 class LocalCameraController(QThread):
     """로컬 USB 카메라 제어용 스레드"""
     frame_updated = pyqtSignal(QImage)
+    camera_status_changed = pyqtSignal(bool, str)
 
-    def __init__(self, camera_index=0):
+    def __init__(self, camera_source: str):
         super().__init__()
-        self.camera_index = camera_index
+        self.camera_source = camera_source
         self.running = False
 
     def run(self):
         self.running = True
-        cap = cv2.VideoCapture(self.camera_index)
-        
+        cap = cv2.VideoCapture(self.camera_source)
+        if not cap.isOpened():
+            self.running = False
+            self.camera_status_changed.emit(False, f"카메라 오픈 실패: {self.camera_source}")
+            return
+
+        self.camera_status_changed.emit(True, f"카메라 연결됨: {self.camera_source}")
+
         while self.running:
             ret, frame = cap.read()
             if ret:
@@ -69,9 +136,10 @@ class LocalCameraController(QThread):
                 except Exception:
                     pass
             else:
-                # 읽기 실패 시 잠시 대기
-                self.msleep(100)
-        
+                self.running = False
+                self.camera_status_changed.emit(False, f"카메라 프레임 읽기 실패: {self.camera_source}")
+                break
+
         cap.release()
 
     def stop(self):
@@ -81,6 +149,7 @@ class LocalCameraController(QThread):
 
 class MainTab(QWidget):
     """Main 탭 - 시스템 맵, 주문 로그, 로봇 상태, 카메라 뷰"""
+    topview_camera_state_changed = pyqtSignal(bool)
     
     def __init__(self, robot_settings, comm_manager, parent=None):
         super().__init__(parent)
@@ -93,8 +162,17 @@ class MainTab(QWidget):
         # 로컬 카메라 컨트롤러
         self.local_camera = None
         self.system_map_cam_label = None
+        self._topview_camera_connected = False
+        self._topview_zoom_factor = 1.0
+        self._latest_topview_pixmap = None
+        self._topview_pan_x = 0.0
+        self._topview_pan_y = 0.0
+        self._topview_drag_last_pos = None
         
         self._setup_ui()
+
+        # 시작 시 1회 자동 연결 시도 (USB 탑뷰 카메라만 대상)
+        QTimer.singleShot(0, self._auto_connect_topview_camera)
         
         # 데이터 갱신 타이머 (2초 간격)
         self.data_timer = QTimer(self)
@@ -103,9 +181,129 @@ class MainTab(QWidget):
     
     def cleanup(self):
         """리소스 정리"""
+        self.disconnect_topview_camera()
+
+    def is_topview_camera_connected(self):
+        """탑뷰 카메라 연결 상태"""
+        return bool(self._topview_camera_connected)
+
+    def _set_topview_camera_connected(self, connected: bool):
+        new_state = bool(connected)
+        if self._topview_camera_connected != new_state:
+            self._topview_camera_connected = new_state
+            self.topview_camera_state_changed.emit(new_state)
+        else:
+            self._topview_camera_connected = new_state
+
+    def _topview_label_message(self, message: str):
+        if self.system_map_cam_label:
+            self.system_map_cam_label.setPixmap(QPixmap())
+            self.system_map_cam_label.setText(message)
+
+    def _is_topview_usb_candidate(self, path: str):
+        base = os.path.basename(path)
+        return base.startswith(TOPVIEW_USB_PREFIX)
+
+    def _camera_path_priority(self, path: str):
+        base = os.path.basename(path)
+        if "video-index0" in base:
+            return (0, base)
+        if "video-index1" in base:
+            return (1, base)
+        return (2, base)
+
+    def _camera_path_readable(self, path: str):
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            return False
+        ok = False
+        for _ in range(3):
+            ret, _ = cap.read()
+            if ret:
+                ok = True
+                break
+        cap.release()
+        return ok
+
+    def _find_topview_usb_camera_path(self):
+        pattern = os.path.join(TOPVIEW_V4L_BY_ID_DIR, "usb-*")
+        candidates = [p for p in glob.glob(pattern) if self._is_topview_usb_candidate(p)]
+        candidates = sorted(candidates, key=self._camera_path_priority)
+
+        for path in candidates:
+            if self._camera_path_readable(path):
+                return path
+        return None
+
+    def connect_topview_camera(self):
+        """탑뷰 USB 카메라 연결"""
+        if self.is_topview_camera_connected():
+            return True
+
+        camera_path = self._find_topview_usb_camera_path()
+        if not camera_path:
+            self._set_topview_camera_connected(False)
+            self._topview_label_message("USB 탑뷰카메라 미감지")
+            return False
+
+        self.disconnect_topview_camera()
+        self._topview_zoom_factor = 1.0
+        self._topview_pan_x = 0.0
+        self._topview_pan_y = 0.0
+        self._topview_drag_last_pos = None
+        self._topview_label_message("탑뷰카메라 연결 중...")
+
+        self.local_camera = LocalCameraController(camera_path)
+        self.local_camera.frame_updated.connect(self._update_system_map_frame)
+        self.local_camera.camera_status_changed.connect(self._on_local_camera_status_changed)
+        self.local_camera.start()
+        return True
+
+    def _auto_connect_topview_camera(self):
+        """앱 시작 시 탑뷰 카메라 자동 연결 1회 시도"""
+        self._topview_label_message("탑뷰카메라 자동 연결 시도 중...")
+        connected = self.connect_topview_camera()
+        if not connected:
+            self._topview_label_message("USB 탑뷰카메라 미감지")
+
+    def disconnect_topview_camera(self):
+        """탑뷰 카메라 연결 해제"""
         if self.local_camera:
+            try:
+                self.local_camera.frame_updated.disconnect(self._update_system_map_frame)
+            except Exception:
+                pass
+            try:
+                self.local_camera.camera_status_changed.disconnect(self._on_local_camera_status_changed)
+            except Exception:
+                pass
             self.local_camera.stop()
             self.local_camera = None
+
+        self._set_topview_camera_connected(False)
+        self._latest_topview_pixmap = None
+        self._topview_zoom_factor = 1.0
+        self._topview_pan_x = 0.0
+        self._topview_pan_y = 0.0
+        self._topview_drag_last_pos = None
+        self._topview_label_message("탑뷰카메라 연결 버튼을 눌러 시작하세요")
+
+    def toggle_topview_camera(self):
+        """탑뷰 카메라 연결/해제 토글"""
+        if self.is_topview_camera_connected():
+            self.disconnect_topview_camera()
+            return False
+        return self.connect_topview_camera()
+
+    def _on_local_camera_status_changed(self, connected: bool, message: str):
+        self._set_topview_camera_connected(connected)
+        if not connected:
+            self._latest_topview_pixmap = None
+            self._topview_zoom_factor = 1.0
+            self._topview_pan_x = 0.0
+            self._topview_pan_y = 0.0
+            self._topview_drag_last_pos = None
+            self._topview_label_message(message or "탑뷰카메라 연결 실패")
 
     def _update_dashboard_data(self):
         """대시보드 데이터 갱신 (서버 API 호출)"""
@@ -217,29 +415,162 @@ class MainTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         
         # 카메라 영상 표시용 라벨
-        self.system_map_cam_label = QLabel("USB Camera Loading...")
+        self.system_map_cam_label = ZoomableCameraLabel("탑뷰카메라 연결 버튼을 눌러 시작하세요")
         self.system_map_cam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.system_map_cam_label.setStyleSheet("color: white;")
+        self.system_map_cam_label.wheel_zoomed.connect(self._on_topview_wheel_zoom)
+        self.system_map_cam_label.drag_started.connect(self._on_topview_drag_started)
+        self.system_map_cam_label.drag_moved.connect(self._on_topview_drag_moved)
+        self.system_map_cam_label.drag_ended.connect(self._on_topview_drag_ended)
+        self.system_map_cam_label.resized.connect(self._render_topview_frame)
         layout.addWidget(self.system_map_cam_label)
-        
-        # 로컬 카메라 시작
-        try:
-            self.local_camera = LocalCameraController(0)  # Device Index 0
-            self.local_camera.frame_updated.connect(self._update_system_map_frame)
-            self.local_camera.start()
-        except Exception as e:
-            self.system_map_cam_label.setText(f"Camera Error: {e}")
 
     def _update_system_map_frame(self, image):
         """시스템 맵 카메라 프레임 갱신"""
         if self.system_map_cam_label:
-            pix = QPixmap.fromImage(image)
-            scaled_pix = pix.scaled(
-                self.system_map_cam_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            self.system_map_cam_label.setPixmap(scaled_pix)
+            self._set_topview_camera_connected(True)
+            self._latest_topview_pixmap = QPixmap.fromImage(image)
+            self._render_topview_frame()
+
+    def _topview_fit_size(self, label_w, label_h):
+        if not self._latest_topview_pixmap:
+            return 0.0, 0.0
+        src_w = self._latest_topview_pixmap.width()
+        src_h = self._latest_topview_pixmap.height()
+        if src_w <= 0 or src_h <= 0 or label_w <= 0 or label_h <= 0:
+            return 0.0, 0.0
+        scale = min(label_w / src_w, label_h / src_h)
+        return src_w * scale, src_h * scale
+
+    def _clamp_topview_pan(self, label_w, label_h, zoom_w, zoom_h, base_x, base_y):
+        if zoom_w <= label_w:
+            self._topview_pan_x = 0.0
+        else:
+            min_pan_x = label_w - zoom_w - base_x
+            max_pan_x = -base_x
+            self._topview_pan_x = min(max(self._topview_pan_x, min_pan_x), max_pan_x)
+
+        if zoom_h <= label_h:
+            self._topview_pan_y = 0.0
+        else:
+            min_pan_y = label_h - zoom_h - base_y
+            max_pan_y = -base_y
+            self._topview_pan_y = min(max(self._topview_pan_y, min_pan_y), max_pan_y)
+
+    def _on_topview_wheel_zoom(self, delta, mouse_x, mouse_y):
+        """휠 스크롤로 탑뷰 화면 확대/축소"""
+        if not self._latest_topview_pixmap:
+            return
+
+        label_w = self.system_map_cam_label.width()
+        label_h = self.system_map_cam_label.height()
+        fit_w, fit_h = self._topview_fit_size(label_w, label_h)
+        if fit_w <= 0 or fit_h <= 0:
+            return
+
+        old_zoom = self._topview_zoom_factor
+        if delta > 0:
+            new_zoom = min(TOPVIEW_MAX_ZOOM, old_zoom * TOPVIEW_ZOOM_STEP)
+        else:
+            new_zoom = max(TOPVIEW_MIN_ZOOM, old_zoom / TOPVIEW_ZOOM_STEP)
+
+        if abs(new_zoom - old_zoom) < 1e-9:
+            return
+
+        old_zoom_w = fit_w * old_zoom
+        old_zoom_h = fit_h * old_zoom
+        old_base_x = (label_w - old_zoom_w) / 2.0
+        old_base_y = (label_h - old_zoom_h) / 2.0
+
+        rel_x = None
+        rel_y = None
+        if old_zoom_w > 0 and old_zoom_h > 0:
+            rel_x = (mouse_x - (old_base_x + self._topview_pan_x)) / old_zoom_w
+            rel_y = (mouse_y - (old_base_y + self._topview_pan_y)) / old_zoom_h
+
+        self._topview_zoom_factor = new_zoom
+
+        if rel_x is not None and rel_y is not None and 0.0 <= rel_x <= 1.0 and 0.0 <= rel_y <= 1.0:
+            new_zoom_w = fit_w * new_zoom
+            new_zoom_h = fit_h * new_zoom
+            new_base_x = (label_w - new_zoom_w) / 2.0
+            new_base_y = (label_h - new_zoom_h) / 2.0
+            self._topview_pan_x = mouse_x - new_base_x - (rel_x * new_zoom_w)
+            self._topview_pan_y = mouse_y - new_base_y - (rel_y * new_zoom_h)
+
+        zoom_w = fit_w * self._topview_zoom_factor
+        zoom_h = fit_h * self._topview_zoom_factor
+        base_x = (label_w - zoom_w) / 2.0
+        base_y = (label_h - zoom_h) / 2.0
+        self._clamp_topview_pan(label_w, label_h, zoom_w, zoom_h, base_x, base_y)
+        self._render_topview_frame()
+
+    def _on_topview_drag_started(self, x, y):
+        if not self._latest_topview_pixmap or self._topview_zoom_factor <= TOPVIEW_MIN_ZOOM:
+            self._topview_drag_last_pos = None
+            return
+        self._topview_drag_last_pos = (x, y)
+
+    def _on_topview_drag_moved(self, x, y):
+        if not self._latest_topview_pixmap or self._topview_drag_last_pos is None:
+            return
+
+        last_x, last_y = self._topview_drag_last_pos
+        dx = x - last_x
+        dy = y - last_y
+        self._topview_drag_last_pos = (x, y)
+
+        self._topview_pan_x += dx
+        self._topview_pan_y += dy
+        self._render_topview_frame()
+
+    def _on_topview_drag_ended(self):
+        self._topview_drag_last_pos = None
+
+    def _render_topview_frame(self):
+        """현재 줌 비율 기준으로 탑뷰 프레임 렌더링"""
+        if not self.system_map_cam_label or not self._latest_topview_pixmap:
+            return
+
+        label_w = self.system_map_cam_label.width()
+        label_h = self.system_map_cam_label.height()
+        if label_w <= 0 or label_h <= 0:
+            return
+
+        fit_w, fit_h = self._topview_fit_size(label_w, label_h)
+        if fit_w <= 0 or fit_h <= 0:
+            return
+
+        fit_pix = self._latest_topview_pixmap.scaled(
+            int(fit_w),
+            int(fit_h),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+
+        zoom_w = max(1, int(fit_pix.width() * self._topview_zoom_factor))
+        zoom_h = max(1, int(fit_pix.height() * self._topview_zoom_factor))
+        zoom_pix = fit_pix.scaled(
+            zoom_w,
+            zoom_h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+
+        canvas = QPixmap(label_w, label_h)
+        canvas.fill(Qt.GlobalColor.black)
+
+        base_x = (label_w - zoom_pix.width()) / 2.0
+        base_y = (label_h - zoom_pix.height()) / 2.0
+        self._clamp_topview_pan(label_w, label_h, zoom_pix.width(), zoom_pix.height(), base_x, base_y)
+
+        painter = QPainter(canvas)
+        draw_x = int(round(base_x + self._topview_pan_x))
+        draw_y = int(round(base_y + self._topview_pan_y))
+        painter.drawPixmap(draw_x, draw_y, zoom_pix)
+        painter.end()
+
+        self.system_map_cam_label.setPixmap(canvas)
 
     def _create_order_log(self):
         """주문 로그"""
