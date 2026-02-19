@@ -61,7 +61,20 @@ rosdep install -i --from-path src --rosdistro $ROS_DISTRO -y
 
 **주의:** 이 명령어는 ROS 패키지의 native dependencies를 자동으로 설치합니다.
 
-### 5. Python 패키지 설치
+### 5. 시스템 의존성 설치
+
+pymoveit2 설치 전 필요한 시스템 패키지들을 설치합니다:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3-dev build-essential
+```
+
+**필수 패키지:**
+- `python3-dev`: Python 개발 헤더 파일
+- `build-essential`: C/C++ 컴파일러 및 빌드 도구
+
+### 6. Python 패키지 설치
 
 ```bash
 pip install --upgrade pip
@@ -79,7 +92,13 @@ pip install scipy
 pip install pymoveit2 opencv-python opencv-contrib-python PyYAML numpy scipy
 ```
 
-### 6. Workspace 빌드
+**주의:** pymoveit2 설치 시 "찾을 수 없음" 오류가 발생하면:
+1. ROS2 환경이 제대로 sourced되었는지 확인: `echo $ROS_DISTRO` (jazzy 출력 확인)
+2. 위의 시스템 의존성 설치 완료 확인
+3. rosdep 설치가 완료되었는지 확인
+4. 가상 환경이 활성화되었는지 확인
+
+### 7. Workspace 빌드
 
 ```bash
 cd /home/addinedu/lovo/roscamp-repo-3/jetcobot
@@ -96,7 +115,7 @@ source install/setup.bash
 
 **참고:** `colcon build`는 jetcobot 폴더 내에서 실행해야 합니다. jetcobot이 workspace root입니다.
 
-### 7. 실행
+### 8. 실행
 
 ```bash
 # 1. Launch 파일로 실행 (MoveIt 및 other components 포함)
