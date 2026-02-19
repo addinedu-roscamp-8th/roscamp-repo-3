@@ -22,8 +22,13 @@ numpy>=1.24.0
 
 ### 1. Virtual Environment 생성
 
-mycobot 가상 환경을 생성합니다:
+mycobot 가상 환경을 생성합니다 (Python 3.12 사용 시 아래 명령 권장):
 
+```bash
+python3.12 -m venv ~/venv/mycobot
+```
+
+**다른 Python 버전 사용 시:**
 ```bash
 python3 -m venv ~/venv/mycobot
 ```
@@ -39,7 +44,7 @@ source ~/venv/mycobot/bin/activate
 **확인:**
 ```bash
 which python  # should show path to ~/venv/mycobot/bin/python
-python --version  # should show Python 3.10+
+python --version  # should show Python 3.12+ (또는 사용 중인 버전)
 ```
 
 ### 3. ROS2 환경 설정
@@ -76,7 +81,12 @@ sudo apt-get install -y python3-dev build-essential
 
 ### 6. Python 패키지 설치
 
+**중요:** 이 단계는 **venv가 활성화된 상태**에서 실행해야 합니다 (2단계 참조).
+
 ```bash
+# venv가 활성화되어 있는지 확인:
+# (venv/mycobot) $ 프롬프트가 보여야 함
+
 pip install --upgrade pip
 pip install pymoveit2>=0.3.0
 pip install opencv-python>=4.8.0
@@ -96,7 +106,18 @@ pip install pymoveit2 opencv-python opencv-contrib-python PyYAML numpy scipy
 1. ROS2 환경이 제대로 sourced되었는지 확인: `echo $ROS_DISTRO` (jazzy 출력 확인)
 2. 위의 시스템 의존성 설치 완료 확인
 3. rosdep 설치가 완료되었는지 확인
-4. 가상 환경이 활성화되었는지 확인
+4. **venv가 활성화되어 있는지 확인**: `echo $VIRTUAL_ENV` (~/venv/mycobot 출력 확인)
+
+**대안: rosdep을 통한 설치**
+
+다른 컴퓨터에서 pip로 설치 실패 시 rosdep으로 설치할 수 있습니다:
+
+```bash
+# ROS2 환경이 sourced된 상태에서
+rosdep install pymoveit2 -y
+```
+
+또는 colcon 빌드 시 자동으로 설치되므로, 다음 단계(Workspace 빌드)를 먼저 진행해도 됩니다.
 
 ### 7. Workspace 빌드
 
