@@ -14,10 +14,10 @@ from datetime import datetime
 from lovo_gui.constants import MAIN_SYSTEM_MAP, MAIN_ORDER_LOG, MAIN_ROBOT_GRID, MAIN_CAMERA_VIEW
 
 # 카메라 크롭 설정 (픽셀 단위) - 여기서 조절하세요!
-CROP_TOP = 80     # 위쪽 자르기
-CROP_BOTTOM = 90  # 아래쪽 자르기
-CROP_LEFT = 0      # 왼쪽 자르기
-CROP_RIGHT = 0     # 오른쪽 자르기
+CROP_TOP = 140     # 위쪽 자르기
+CROP_BOTTOM = 30  # 아래쪽 자르기
+CROP_LEFT = 20      # 왼쪽 자르기
+CROP_RIGHT = 40     # 오른쪽 자르기
 
 # 카메라 반전 설정
 CAMERA_FLIP_HORIZONTAL = True  # 좌우 반전 (미러링)
@@ -106,7 +106,15 @@ class LocalCameraController(QThread):
             ret, frame = cap.read()
             if ret:
                 try:
-                    # 크롭 적용
+                    # 반전 적용
+                    if CAMERA_FLIP_HORIZONTAL and CAMERA_FLIP_VERTICAL:
+                        frame = cv2.flip(frame, -1)
+                    elif CAMERA_FLIP_HORIZONTAL:
+                        frame = cv2.flip(frame, 1)
+                    elif CAMERA_FLIP_VERTICAL:
+                        frame = cv2.flip(frame, 0)
+
+                    # 크롭 적용 (반전 후 기준으로 적용하여 조작 직관성 향상)
                     h, w, _ = frame.shape
                     # 음수 인덱싱 방지를 위한 범위 계산
                     start_y = CROP_TOP
@@ -117,14 +125,6 @@ class LocalCameraController(QThread):
                     # 유효성 검사 (크롭 영역이 이미지보다 크면 원본 사용)
                     if start_y < end_y and start_x < end_x:
                         frame = frame[start_y:end_y, start_x:end_x]
-                    
-                    # 반전 적용
-                    if CAMERA_FLIP_HORIZONTAL and CAMERA_FLIP_VERTICAL:
-                        frame = cv2.flip(frame, -1)
-                    elif CAMERA_FLIP_HORIZONTAL:
-                        frame = cv2.flip(frame, 1)
-                    elif CAMERA_FLIP_VERTICAL:
-                        frame = cv2.flip(frame, 0)
                     
                     # OpenCV BGR -> RGB
                     rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -444,6 +444,20 @@ class MainTab(QWidget):
         
         # 우하단: 카메라 뷰
         self._create_camera_view()
+
+    def _create_section_title(self, text: str):
+        """메인 섹션 공통 타이틀 라벨"""
+        title = QLabel(text)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setFixedHeight(30)
+        title.setStyleSheet("""
+            background-color: #3f3f3f;
+            color: #f2f2f2;
+            font-size: 13px;
+            font-weight: bold;
+            border: 1px solid #555;
+        """)
+        return title
     
     def _create_system_map(self):
         """시스템 맵 (USB 카메라)"""
@@ -454,6 +468,10 @@ class MainTab(QWidget):
         
         layout = QVBoxLayout(system_map)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        title = self._create_section_title("시스템 맵")
+        layout.addWidget(title)
         
         # 카메라 영상 표시용 라벨
         self.system_map_cam_label = ZoomableCameraLabel("탑뷰카메라 연결 버튼을 눌러 시작하세요")
@@ -621,11 +639,10 @@ class MainTab(QWidget):
         order_log_frame.setStyleSheet("QFrame { background-color: #f5f5f5; border: none; }")
         
         layout = QVBoxLayout(order_log_frame)
-        layout.setContentsMargins(5, 5, 5, 5)
-        
-        title = QLabel("주문 로그 (실시간)")
-        title.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        title = self._create_section_title("주문 로그 (실시간)")
         layout.addWidget(title)
         
         self.order_log_viewer = QTextEdit()
@@ -762,28 +779,26 @@ class MainTab(QWidget):
         self.camera_view_frame.setStyleSheet("""
             QFrame {
                 background-color: #2a2a2a;
-                border: 2px solid #555;
+                border: 1px solid #555;
                 border-radius: 4px;
             }
         """)
         
         layout = QVBoxLayout(self.camera_view_frame)
-        layout.setContentsMargins(0, 5, 0, 5)
-        layout.setSpacing(5)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
-        self.camera_title = QLabel("카메라 선택 대기 중...")
-        self.camera_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #999;")
-        self.camera_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.camera_title.setFixedHeight(20)
+        self.camera_title = self._create_section_title("카메라 뷰")
         layout.addWidget(self.camera_title)
         
         self.camera_view_label = QLabel("캠 버튼을 눌러 카메라를 선택하세요")
-        self.camera_view_label.setFixedSize(420, 270)
+        self.camera_view_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.camera_view_label.setMinimumSize(0, 0)
         self.camera_view_label.setStyleSheet(
             "background-color: black; border: 1px solid #444; border-radius: 4px; color: #666;"
         )
         self.camera_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.camera_view_label)
+        layout.addWidget(self.camera_view_label, 1)
 
         # 현재 연결된 카메라 컨트롤러 참조 (frame_updated 연결/해제 관리)
         self._current_camera_controller = None
@@ -792,8 +807,7 @@ class MainTab(QWidget):
     def show_camera_view(self, robot):
         """카메라 뷰 표시"""
         robot_name = robot.get("name", "로봇")
-        self.camera_title.setText(f"{robot_name} - 카메라 뷰")
-        self.camera_view_label.setText("카메라 스트리밍 대기 중...")
+        self.camera_view_label.setText(f"{robot_name} 카메라 스트리밍 대기 중...")
 
         # 윈도우 레벨에서 CommunicationTab의 CameraController를 가져와 프레임 업데이트를 연결
         try:

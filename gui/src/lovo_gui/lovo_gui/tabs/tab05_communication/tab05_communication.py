@@ -163,6 +163,20 @@ class CommunicationTab(QWidget):
         self.comm_manager.log("시스템 시작")
         self.comm_manager.log("로봇 연결 대기 중...")
 
+    def _create_section_title(self, text: str):
+        """공통 섹션 타이틀 라벨"""
+        title = QLabel(text)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setFixedHeight(30)
+        title.setStyleSheet("""
+            background-color: #3f3f3f;
+            color: #f2f2f2;
+            font-size: 13px;
+            font-weight: bold;
+            border: 1px solid #555;
+        """)
+        return title
+
     def _bind_connection_state_store(self):
         """공통 상태 스토어 시그널 구독"""
         if not hasattr(self.comm_manager, "state_store"):
@@ -227,6 +241,9 @@ class CommunicationTab(QWidget):
         left_widget.setFixedWidth(COMM_TABLE_WIDTH)
         layout = QVBoxLayout(left_widget)
         layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        layout.addWidget(self._create_section_title("통신 연결 상태"))
         
         # 테이블 생성
         self.conn_table = QTableWidget()
@@ -328,11 +345,10 @@ class CommunicationTab(QWidget):
         right_widget = QWidget()
         layout = QVBoxLayout(right_widget)
         layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
         
         # 타이틀
-        log_title = QLabel("📡 통신 로그")
-        log_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #333;")
-        layout.addWidget(log_title)
+        layout.addWidget(self._create_section_title("통신 로그"))
         
         # 로그 뷰어
         self.comm_log_viewer = QTextEdit()
