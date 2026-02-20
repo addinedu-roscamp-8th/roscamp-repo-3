@@ -1,0 +1,49 @@
+meta:
+  pos_unit: "cm"
+  rot_unit: "deg"
+
+poses: # for aruco detect & pick & down offset positions
+  "picking_poses":
+    xyz_cm:    [-7.03, 1.35, 23.79]
+    rpy_deg:   [10.62, -60.53, 111.29]
+    offsets:
+      "4": # 상판
+        offset_cm: [0.5, 0.5, 4.0]
+        z_lift_cm: 2.0
+      "5": # 키트
+        offset_cm: [0.0, 0.5, 4.5]
+        z_lift_cm: 8.0
+      "6": # 다리
+        offset_cm: [0.1, 1.0, 4.5]
+        z_lift_cm: 3.0
+      "7": # 바퀴
+        offset_cm: [0, 0.8, 4.5]
+        z_lift_cm: 3.0
+    note: "피킹 위치 및 오프셋 정보"
+
+  "picking_end_pose":
+    xyz_cm:    [-6.48, 5.15, 34.11]
+    rpy_deg:   [-1.92, -14.43, 93.99]
+    note: "피킹 종료 위치"
+
+  "packing_poses":
+    xyz_cm:    [-0.13, 9.07, 20.71]
+    rpy_deg:   [5.34, -79.42, 38.26]
+    offsets:
+      "4": # 상판
+        offset_cm: [9.5, 4.0, 10.0]
+        z_lift_cm: 2.0          
+      "5": # 키트
+        offset_cm: [12.0, 0.0, 10.0]
+        z_lift_cm: 3.0
+      "6": # 다리
+        offset_cm: [6.0, 0.0, 10.0]
+        z_lift_cm: 3.0
+      "7": # 바퀴
+        offset_cm: [9.0, 0.0, 10.0]
+        z_lift_cm: 3.0
+
+  "packing_end_pose":
+    xyz_cm:    [3.68, 15.16, 35.15]
+    rpy_deg:   [-0.20, -0.11, 9.75]
+    note: "패킹 종료 위치"

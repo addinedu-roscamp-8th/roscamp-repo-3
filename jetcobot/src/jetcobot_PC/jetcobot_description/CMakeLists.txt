@@ -10,7 +10,7 @@ find_package(ament_cmake REQUIRED)
 
 # Copy the necessary files to designated locations in the project
 install(
-  DIRECTORY launch meshes urdf rviz
+  DIRECTORY launch meshes urdf 
   DESTINATION share/${PROJECT_NAME})
 # uncomment the following section in order to fill in
 # further dependencies manually.
