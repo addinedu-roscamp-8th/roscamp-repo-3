@@ -1,9 +1,0 @@
-action,slot,label,x,y,z,z_lift
-pickup,1,상판,0.0,0.0,0.0,0.0
-pickup,2,다리,0.0,0.0,0.0,0.0
-pickup,3,바퀴,0.0,0.0,0.0,0.0
-pickup,4,tool박스,0.0,0.0,0.0,0.0
-pickdown,1,상판,0.0,0.0,0.0,0.0
-pickdown,2,다리,0.0,0.0,0.0,0.0
-pickdown,3,바퀴,0.0,0.0,0.0,0.0
-pickdown,4,tool박스,0.0,0.0,0.0,0.0
