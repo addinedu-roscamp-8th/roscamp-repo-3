@@ -284,6 +284,7 @@ async def ai_analysis(request: Request):
 
 # Global storage for latest coordinates
 latest_ai_coordinates: Optional[AICoordinateData] = None
+ai_event_logs: List[AIEventLogData] = []
 
 @app.get("/api/ai/coordinates", response_model=Optional[AICoordinateData])
 def get_ai_coordinates():
@@ -304,6 +305,29 @@ async def receive_ai_coordinates(data: AICoordinateData):
         return {"status": "success", "received": data.seq}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ai/event-log")
+async def receive_ai_event_log(data: AIEventLogData):
+    """Receive AI event log payload from AI Server."""
+    try:
+        ai_event_logs.append(data)
+        # Keep only the latest 1000 entries in memory.
+        if len(ai_event_logs) > 1000:
+            del ai_event_logs[:-1000]
+        return {"status": "success", "received": data.seq}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ai/event-log", response_model=List[AIEventLogData])
+def get_ai_event_logs(limit: int = 50):
+    """Fetch latest AI event logs (newest first)."""
+    if limit < 1:
+        limit = 1
+    if limit > 500:
+        limit = 500
+    return list(reversed(ai_event_logs[-limit:]))
 
 if __name__ == '__main__':
     uvicorn.run(app, host='0.0.0.0', port=5000)
