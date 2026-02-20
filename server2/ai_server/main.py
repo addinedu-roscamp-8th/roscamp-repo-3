@@ -21,6 +21,19 @@ MAIN_SERVER_EVENT_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/event-log"
 USB_CAMERA_INDEX = 0 # Default USB Camera
 EVENT_IMAGE_DIR = Path(__file__).resolve().parent / "event_logs" / "images"
 EVENT_LOG_FILE = Path(__file__).resolve().parent / "event_logs" / "events.jsonl"
+GUI_PC_IP = "192.168.0.13"
+GUI_UDP_PORT = 5930
+GUI_JPEG_QUALITY = 70
+
+# Local camera crop settings (pixels)
+CROP_TOP = 50
+CROP_BOTTOM = 145
+CROP_LEFT = 40
+CROP_RIGHT = 20
+
+# Local camera flip settings
+CAMERA_FLIP_HORIZONTAL = True
+CAMERA_FLIP_VERTICAL = True
 
 app = FastAPI(title="LOVO Multi-Robot AI Analysis Server")
 
@@ -98,6 +111,25 @@ event_logger = FireEventLogger(
     fire_timeout_sec=15.0,
 )
 
+
+def _apply_local_camera_adjustments(frame: np.ndarray) -> np.ndarray:
+    h, w = frame.shape[:2]
+    start_y = max(0, CROP_TOP)
+    end_y = h - max(0, CROP_BOTTOM)
+    start_x = max(0, CROP_LEFT)
+    end_x = w - max(0, CROP_RIGHT)
+
+    if start_y < end_y and start_x < end_x:
+        frame = frame[start_y:end_y, start_x:end_x]
+
+    if CAMERA_FLIP_HORIZONTAL and CAMERA_FLIP_VERTICAL:
+        frame = cv2.flip(frame, -1)
+    elif CAMERA_FLIP_HORIZONTAL:
+        frame = cv2.flip(frame, 1)
+    elif CAMERA_FLIP_VERTICAL:
+        frame = cv2.flip(frame, 0)
+    return frame
+
 # --- UDP Receiver Task ---
 def udp_receiver_task(robot_state: RobotState):
     """Independent UDP Receiver for each robot port."""
@@ -137,6 +169,7 @@ def usb_camera_task(robot_state: RobotState):
     if not cap.isOpened():
         logging.error(f"Could not open USB camera at index {USB_CAMERA_INDEX}")
         return
+    gui_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     logging.info(f"USB Camera started for {robot_state.robot_id}")
     while True:
@@ -145,16 +178,35 @@ def usb_camera_task(robot_state: RobotState):
             logging.warning("Failed to grab frame from USB camera")
             time.sleep(0.1)
             continue
+        frame = _apply_local_camera_adjustments(frame)
 
         with robot_state.lock:
             robot_state.latest_frame = frame
             robot_state.height, robot_state.width = frame.shape[:2]
+
+        try:
+            ok, jpeg = cv2.imencode(
+                ".jpg",
+                frame,
+                [int(cv2.IMWRITE_JPEG_QUALITY), GUI_JPEG_QUALITY],
+            )
+            if ok:
+                payload = jpeg.tobytes()
+                if len(payload) <= 65507:
+                    gui_sock.sendto(payload, (GUI_PC_IP, GUI_UDP_PORT))
+                else:
+                    logging.debug(
+                        f"GUI stream frame too large for UDP datagram: {len(payload)} bytes"
+                    )
+        except Exception as e:
+            logging.debug(f"GUI UDP stream error: {e}")
         
         robot_state.update_receive_stats()
         # Small sleep to prevent high CPU usage if camera has high FPS
         time.sleep(0.01)
 
     cap.release()
+    gui_sock.close()
 
 def _labels_from_result(result) -> List[str]:
     if not result or result.boxes is None or result.boxes.cls is None:
