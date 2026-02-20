@@ -16,6 +16,7 @@ import math
 import cv2
 import os
 from datetime import datetime
+from decimal import Decimal
 from std_msgs.msg import Float64
 from lovo_interfaces.srv import GetSnapshot
 
@@ -33,7 +34,7 @@ class PickPlaceHandler:
         self.position_check_delay = 0.1  # Delay between position checks during movement
         self.image_capture_delay = 1.0   # Delay before capturing image to stabilize robot
         self.second_place_delay = 1.0    # Delay before executing second place with saved data
-        self.before_move_delay = 0.4
+        self.before_move_delay = 1.0
     ## ==================== Receipt Processing =====================
     # /receipt_command 토픽에서 Float64 메시지를 수신하여 영수증을 처리하는 콜백 함수
     def receipt_list_cb(self, msg: Float64):
@@ -51,13 +52,14 @@ class PickPlaceHandler:
         receipt_value = msg.data
         self.node.get_logger().info(f"\n📋 Received receipt: {receipt_value}")
         
-        # Parse receipt: X.YZW → place_id=X, pick_ids=[Y,Z,W]
-        place_id = int(receipt_value) % 10
-        decimal_part = receipt_value - int(receipt_value)
+        # Parse receipt: X.YZW... → place_id=X, pick_ids=[Y,Z,W,...]
+        # Use Decimal to preserve all digits after the decimal point
+        receipt_str = format(Decimal(str(receipt_value)), "f")
+        integer_part, _, fractional_part = receipt_str.partition(".")
+        place_id = int(integer_part) % 10
         
-        # Extract pick_ids from decimal part
-        decimal_str = f"{decimal_part:.3f}"[2:]  # Remove "0."
-        pick_ids = [int(d) for d in decimal_str if d.isdigit() and int(d) != 0]
+        # Extract pick_ids from all digits after the decimal point
+        pick_ids = [int(d) for d in fractional_part if d.isdigit() and d != "0"]
         
         # 터미널에 파싱 결과 출력
         self.node.get_logger().info(f"{'='*60}")
@@ -127,7 +129,7 @@ class PickPlaceHandler:
                 else:
                     # 이후 사이클: 저장된 marker ID와 같은 마커를 감지하여 새로 target 계산
                     self.node.get_logger().info(f"♻️ Cycle {idx+1}: detecting same marker ID {self._saved_place_marker_id}")
-                    if not self._capture_and_execute_aruco(place_id, gripper_command=100, pick_place_datamap=pick_place_datamap, check_marker_id=self._saved_place_marker_id, pick_id=pick_id):
+                    if not self._capture_and_execute_aruco(place_id, gripper_command=60, pick_place_datamap=pick_place_datamap, check_marker_id=self._saved_place_marker_id, pick_id=pick_id):
                         self.node.get_logger().error(f"❌ Failed to execute place")
                         break
                 
@@ -406,71 +408,93 @@ class PickPlaceHandler:
             self.node.get_logger().error("❌ Image capture service not available")
             return None
         
-        # GetSnapshot 서비스 요청 
-        request = GetSnapshot.Request() # Request 객체 생성
-        self.node.get_logger().info(f"📤 Sending GetSnapshot request...")
-        future = self.node.image_capture_client.call_async(request) # 비동기로 서버로 요청 보내기
-        
-        # Wait for response
-        timeout = 5.0
-        start_time = time.time()
-        while not future.done():
-            if time.time() - start_time > timeout:
-                self.node.get_logger().error("❌ Image capture timeout")
-                return None
-            time.sleep(0.1)
-        
-        self.node.get_logger().info(f"📥 Received response from service")
-        
-        try:
-            response = future.result() # GetSnapshot.Response 객체에서 결과 가져오기
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            # GetSnapshot 서비스 요청 
+            request = GetSnapshot.Request() # Request 객체 생성
+            self.node.get_logger().info(f"📤 Sending GetSnapshot request... (attempt {attempt}/{max_attempts})")
+            future = self.node.image_capture_client.call_async(request) # 비동기로 서버로 요청 보내기
             
-            self.node.get_logger().info(f"🔍 Response type: {type(response)}")
-            self.node.get_logger().info(f"🔍 Has image attr: {hasattr(response, 'image')}")
+            # Wait for response
+            timeout = 5.0
+            start_time = time.time()
+            while not future.done():
+                if time.time() - start_time > timeout:
+                    self.node.get_logger().error("❌ Image capture timeout")
+                    future.cancel()
+                    break
+                time.sleep(0.1)
             
-            # Check if image data is valid
-            if not hasattr(response, 'image') or not response.image:
-                self.node.get_logger().error("❌ Response has no image attribute or image is None")
-                return None
+            if not future.done():
+                if attempt < max_attempts:
+                    time.sleep(0.2)
+                continue
+            
+            self.node.get_logger().info(f"📥 Received response from service")
+            
+            try:
+                response = future.result() # GetSnapshot.Response 객체에서 결과 가져오기
                 
-            self.node.get_logger().info(f"🔍 Image type: {type(response.image)}")
-            self.node.get_logger().info(f"🔍 Has data attr: {hasattr(response.image, 'data')}")
-            
-            if not hasattr(response.image, 'data') or not response.image.data:
-                self.node.get_logger().error("❌ Received empty image data from service")
+                self.node.get_logger().info(f"🔍 Response type: {type(response)}")
+                self.node.get_logger().info(f"🔍 Has image attr: {hasattr(response, 'image')}")
+                
+                # Check if image data is valid
+                if not hasattr(response, 'image') or not response.image:
+                    self.node.get_logger().error("❌ Response has no image attribute or image is None")
+                    if attempt < max_attempts:
+                        time.sleep(0.2)
+                        continue
+                    return None
+                    
+                self.node.get_logger().info(f"🔍 Image type: {type(response.image)}")
+                self.node.get_logger().info(f"🔍 Has data attr: {hasattr(response.image, 'data')}")
+                
+                if not hasattr(response.image, 'data') or not response.image.data:
+                    self.node.get_logger().error("❌ Received empty image data from service")
+                    if attempt < max_attempts:
+                        time.sleep(0.2)
+                        continue
+                    return None
+                
+                self.node.get_logger().info(f"📸 Received compressed image: format={response.image.format}, size={len(response.image.data)} bytes")
+                
+                # Service returns grayscale image
+                cv_image = self.node.bridge.compressed_imgmsg_to_cv2(
+                    response.image, 
+                    desired_encoding="passthrough"
+                )
+                
+                if cv_image is None or cv_image.size == 0:
+                    self.node.get_logger().error("❌ Failed to decode image")
+                    if attempt < max_attempts:
+                        time.sleep(0.2)
+                        continue
+                    return None
+                
+                self.node.get_logger().info(f"📸 Image captured: {cv_image.shape}")
+                
+                # Save captured image to file
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                save_dir = os.path.expanduser("~/captured_images")
+                os.makedirs(save_dir, exist_ok=True)
+                filename = os.path.join(save_dir, f"capture_{timestamp}.png")
+                
+                if cv2.imwrite(filename, cv_image):
+                    self.node.get_logger().info(f"💾 Image saved: {filename}")
+                else:
+                    self.node.get_logger().warn(f"⚠️ Failed to save image to {filename}")
+                
+                return cv_image # OpenCV 이미지로 변환하여 반환
+                
+            except Exception as e:
+                self.node.get_logger().error(f"❌ Failed to capture image: {e}")
+                import traceback
+                self.node.get_logger().error(f"Traceback: {traceback.format_exc()}")
+                if attempt < max_attempts:
+                    time.sleep(0.2)
+                    continue
                 return None
-            
-            self.node.get_logger().info(f"📸 Received compressed image: format={response.image.format}, size={len(response.image.data)} bytes")
-            
-            # Service returns grayscale image
-            cv_image = self.node.bridge.compressed_imgmsg_to_cv2(
-                response.image, 
-                desired_encoding="passthrough"
-            )
-            
-            if cv_image is None or cv_image.size == 0:
-                self.node.get_logger().error("❌ Failed to decode image")
-                return None
-            
-            self.node.get_logger().info(f"📸 Image captured: {cv_image.shape}")
-            
-            # Save captured image to file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_dir = os.path.expanduser("~/captured_images")
-            os.makedirs(save_dir, exist_ok=True)
-            filename = os.path.join(save_dir, f"capture_{timestamp}.png")
-            
-            if cv2.imwrite(filename, cv_image):
-                self.node.get_logger().info(f"💾 Image saved: {filename}")
-            else:
-                self.node.get_logger().warn(f"⚠️ Failed to save image to {filename}")
-            
-            return cv_image # OpenCV 이미지로 변환하여 반환
-            
-        except Exception as e:
-            self.node.get_logger().error(f"❌ Failed to capture image: {e}")
-            import traceback
-            self.node.get_logger().error(f"Traceback: {traceback.format_exc()}")
-            return None
+        
+        return None
     
 
