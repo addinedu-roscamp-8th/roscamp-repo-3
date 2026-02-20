@@ -8,8 +8,8 @@ def generate_launch_description():
     # 현재 파일의 디렉토리 경로 (server3/mainserver)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 설정 파일 경로: server3/mainserver/config/bridge_pinky
-    config_dir = os.path.join(current_dir, 'config', 'bridge_pinky')
+    # 설정 파일 경로: server3/mainserver/config/bridge_robotarm
+    config_dir = os.path.join(current_dir, 'config', 'bridge_robotarm')
     
     launch_actions = [
         # 1. ROS_DOMAIN_ID를 59로 설정 (관제 PC와 통신용)
@@ -24,7 +24,7 @@ def generate_launch_description():
 
     for yaml_file in yaml_files:
         filename = os.path.basename(yaml_file)
-        node_name = f'pinky_domain_bridge_{filename.replace(".yaml", "")}'
+        node_name = f'robot_arm_domain_bridge_{filename.replace(".yaml", "")}'
         
         launch_actions.append(
             Node(

@@ -4,33 +4,33 @@ topics:
   /status:
     from_domain: 50
     to_domain: 59
-    to_topic: /pinky_1/status
+    remap: /pinky_1/status
     type: std_msgs/msg/Int8
 
   # --- [교통 제어: Request] 핑키 -> 서버 ---
   /traffic_request:
     from_domain: 50
     to_domain: 59
-    to_topic: /pinky_1/traffic_request
+    remap: /pinky_1/traffic_request
     type: std_msgs/msg/String
 
   # --- [교통 제어: Clear] 핑키 -> 서버 ---
   /traffic_clear:
     from_domain: 50
     to_domain: 59
-    to_topic: /pinky_1/traffic_clear
+    remap: /pinky_1/traffic_clear
     type: std_msgs/msg/String
 
   # --- [교통 제어: Response] 서버 -> 핑키 (WAIT/OK 응답) ---
   /traffic_response:
     from_domain: 59
     to_domain: 50
-    to_topic: /traffic_response
+    remap: /traffic_response
     type: std_msgs/msg/String
 
   # --- [교통 제어: Release] 서버 -> 핑키 (방송용) ---
   /traffic_release:
     from_domain: 59
     to_domain: 50
-    to_topic: /traffic_release
+    remap: /traffic_release
     type: std_msgs/msg/String

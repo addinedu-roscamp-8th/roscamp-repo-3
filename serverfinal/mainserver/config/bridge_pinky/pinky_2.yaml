@@ -1,36 +1,36 @@
-name: pinky_3_bridge
+name: pinky_2_bridge
 topics:
   # --- [상태 및 배터리] ---
   /status:
-    from_domain: 52
+    from_domain: 51
     to_domain: 59
-    remap: /pinky_3/status
+    to_topic: /pinky_2/status
     type: std_msgs/msg/Int8
 
   # --- [교통 제어: Request] 핑키 -> 서버 ---
   /traffic_request:
-    from_domain: 52
+    from_domain: 51
     to_domain: 59
-    remap: /pinky_3/traffic_request
+    to_topic: /pinky_2/traffic_request
     type: std_msgs/msg/String
 
   # --- [교통 제어: Clear] 핑키 -> 서버 ---
   /traffic_clear:
-    from_domain: 52
+    from_domain: 51
     to_domain: 59
-    remap: /pinky_3/traffic_clear
+    to_topic: /pinky_2/traffic_clear
     type: std_msgs/msg/String
 
   # --- [교통 제어: Response] 서버 -> 핑키 (WAIT/OK 응답) ---
   /traffic_response:
     from_domain: 59
-    to_domain: 52
-    remap: /traffic_response
+    to_domain: 51
+    to_topic: /traffic_response
     type: std_msgs/msg/String
 
   # --- [교통 제어: Release] 서버 -> 핑키 (방송용) ---
   /traffic_release:
     from_domain: 59
-    to_domain: 52
-    remap: /traffic_release
+    to_domain: 51
+    to_topic: /traffic_release
     type: std_msgs/msg/String
