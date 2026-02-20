@@ -539,15 +539,8 @@ class MainTab(QWidget):
         system_map.setGeometry(x, y, w, h)
         system_map.setStyleSheet("QFrame { background-color: #000000; border: none; }")
         
+        layout = QVBoxLayout(system_map)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        # 상단: 서버 연결 바
-        self._create_server_connection_bar(layout)
-
-        # 좌상단: 시스템 맵
-        self._create_system_map()
-        layout.addWidget(title)
         
         # 카메라 영상 표시용 라벨
         self.system_map_cam_label = ZoomableCameraLabel("탑뷰카메라 연결 버튼을 눌러 시작하세요")
