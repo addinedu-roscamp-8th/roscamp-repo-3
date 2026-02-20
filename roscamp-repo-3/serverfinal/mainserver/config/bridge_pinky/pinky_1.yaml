@@ -1,0 +1,23 @@
+name: pinky_1_bridge
+topics:
+  #1. 로봇들(1,2,3) -> 관제탑(50,51,52)으로 '요청' 보내기
+  /traffic/request:
+    type: std_msgs/msg/String
+    from_domain: 51
+    to_domain: 59
+    remap: /pinky1/traffic/request
+
+  /traffic/response:
+    type: std_msgs/msg/String
+    from_domain: 59
+    to_domain: 51
+    remap: /pinky1/traffic/response
+
+  
+  /battery/present:
+    type: std_msgs/msg/Float32
+    from_domain: 51
+    to_domain: 59
+    remap: /pinky1/battery/present
+  
+  

@@ -1,0 +1,29 @@
+name: traffic_bridge
+topics:
+  #1. 로봇들(1,2,3) -> 관제탑(50,51,52)으로 '요청' 보내기
+  /traffic/request:
+    type: std_msgs/msg/String
+    from_domain: 50
+    to_domain: 59
+  /traffic/request:
+    type: std_msgs/msg/String
+    from_domain: 51
+    to_domain: 59
+  /traffic/request:
+    type: std_msgs/msg/String
+    from_domain: 52
+    to_domain: 59
+
+  #2. 관제탑(59) -> 로봇들(50,51,52)로 '응답' 보내기
+  /traffic/response:
+    type: std_msgs/msg/String
+    from_domain: 59
+    to_domain: 50
+  /traffic/response:
+    type: std_msgs/msg/String
+    from_domain: 59
+    to_domain: 51
+  /traffic/response:
+    type: std_msgs/msg/String
+    from_domain: 59
+    to_domain: 52

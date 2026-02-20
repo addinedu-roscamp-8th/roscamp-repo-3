@@ -1,0 +1,6 @@
+# Request
+# (empty - just trigger image capture)
+---
+# Response
+sensor_msgs/CompressedImage image
+bool success
