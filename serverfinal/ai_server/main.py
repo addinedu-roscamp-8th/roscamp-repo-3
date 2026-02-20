@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from typing import List, Optional, Dict
 import numpy as np
 import time
@@ -10,12 +9,31 @@ import cv2
 import json
 import logging
 import httpx
+from pathlib import Path
 from ultralytics import YOLO
+from event_logger import FireEventLogger
+from coord_transform import load_map_base_transforms, pixel_to_map, map_to_base
 
 # --- Configuration ---
 MAIN_SERVER_IP = "192.168.0.30"
 MAIN_SERVER_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/coordinates"
+MAIN_SERVER_EVENT_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/event-log"
 USB_CAMERA_INDEX = 0 # Default USB Camera
+EVENT_IMAGE_DIR = Path(__file__).resolve().parent / "event_logs" / "images"
+EVENT_LOG_FILE = Path(__file__).resolve().parent / "event_logs" / "events.jsonl"
+GUI_PC_IP = "192.168.0.13"
+GUI_UDP_PORT = 5930
+GUI_JPEG_QUALITY = 70
+
+# Local camera crop settings (pixels)
+CROP_TOP = 50
+CROP_BOTTOM = 145
+CROP_LEFT = 40
+CROP_RIGHT = 20
+
+# Local camera flip settings
+CAMERA_FLIP_HORIZONTAL = True
+CAMERA_FLIP_VERTICAL = True
 
 app = FastAPI(title="LOVO Multi-Robot AI Analysis Server")
 
@@ -32,6 +50,7 @@ class RobotState:
         self.robot_id = robot_id
         self.name = config["name"]
         self.port = config["port"]
+        self.is_udp_source = self.port is not None
         
         self.latest_frame = None
         self.processed_frame = None
@@ -75,13 +94,41 @@ class RobotManager:
             rid: RobotState(rid, cfg) for rid, cfg in configs.items()
         }
         # Load single specific model
-        self.model = YOLO("models/best_fire_det.pt") 
+        self.model = YOLO("models/best_fire_det.pt")
+        self.h_matrix, self.t_base_from_map = load_map_base_transforms()
         logging.info("YOLO Model (best_fire_det.pt) loaded successfully.")
 
     def get_robot(self, robot_id) -> Optional[RobotState]:
         return self.robots.get(robot_id)
 
 manager = RobotManager(ROBOT_CONFIG)
+
+# --- Event Logger ---
+event_logger = FireEventLogger(
+    main_server_event_url=MAIN_SERVER_EVENT_URL,
+    event_image_dir=EVENT_IMAGE_DIR,
+    event_log_file=EVENT_LOG_FILE,
+    fire_timeout_sec=15.0,
+)
+
+
+def _apply_local_camera_adjustments(frame: np.ndarray) -> np.ndarray:
+    h, w = frame.shape[:2]
+    start_y = max(0, CROP_TOP)
+    end_y = h - max(0, CROP_BOTTOM)
+    start_x = max(0, CROP_LEFT)
+    end_x = w - max(0, CROP_RIGHT)
+
+    if start_y < end_y and start_x < end_x:
+        frame = frame[start_y:end_y, start_x:end_x]
+
+    if CAMERA_FLIP_HORIZONTAL and CAMERA_FLIP_VERTICAL:
+        frame = cv2.flip(frame, -1)
+    elif CAMERA_FLIP_HORIZONTAL:
+        frame = cv2.flip(frame, 1)
+    elif CAMERA_FLIP_VERTICAL:
+        frame = cv2.flip(frame, 0)
+    return frame
 
 # --- UDP Receiver Task ---
 def udp_receiver_task(robot_state: RobotState):
@@ -107,6 +154,8 @@ def udp_receiver_task(robot_state: RobotState):
                     robot_state.latest_frame = frame
                     robot_state.last_addr = addr[0]
                     robot_state.height, robot_state.width = frame.shape[:2]
+                    if robot_state.is_udp_source:
+                        event_logger.on_frame_received(robot_state.robot_id, time.time())
                 robot_state.update_receive_stats()
         except socket.timeout:
             continue
@@ -120,6 +169,7 @@ def usb_camera_task(robot_state: RobotState):
     if not cap.isOpened():
         logging.error(f"Could not open USB camera at index {USB_CAMERA_INDEX}")
         return
+    gui_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     logging.info(f"USB Camera started for {robot_state.robot_id}")
     while True:
@@ -128,16 +178,46 @@ def usb_camera_task(robot_state: RobotState):
             logging.warning("Failed to grab frame from USB camera")
             time.sleep(0.1)
             continue
+        frame = _apply_local_camera_adjustments(frame)
 
         with robot_state.lock:
             robot_state.latest_frame = frame
             robot_state.height, robot_state.width = frame.shape[:2]
+
+        try:
+            ok, jpeg = cv2.imencode(
+                ".jpg",
+                frame,
+                [int(cv2.IMWRITE_JPEG_QUALITY), GUI_JPEG_QUALITY],
+            )
+            if ok:
+                payload = jpeg.tobytes()
+                if len(payload) <= 65507:
+                    gui_sock.sendto(payload, (GUI_PC_IP, GUI_UDP_PORT))
+                else:
+                    logging.debug(
+                        f"GUI stream frame too large for UDP datagram: {len(payload)} bytes"
+                    )
+        except Exception as e:
+            logging.debug(f"GUI UDP stream error: {e}")
         
         robot_state.update_receive_stats()
         # Small sleep to prevent high CPU usage if camera has high FPS
         time.sleep(0.01)
 
     cap.release()
+    gui_sock.close()
+
+def _labels_from_result(result) -> List[str]:
+    if not result or result.boxes is None or result.boxes.cls is None:
+        return []
+    cls_ids = result.boxes.cls.int().cpu().tolist()
+    names = result.names if hasattr(result, "names") else {}
+    labels = []
+    for cid in cls_ids:
+        label = names.get(cid, str(cid))
+        labels.append(str(label).lower())
+    return labels
 
 # --- Inference Worker Task ---
 def inference_worker_task():
@@ -161,31 +241,58 @@ def inference_worker_task():
             
             if frame_to_process is not None:
                 start_time = time.time()
+                obs_msg = {
+                    "robot_id": state.robot_id,
+                    "t": round(now, 3),
+                    "seq": state.seq_counter,
+                    "img": {"W": state.width, "H": state.height},
+                    "state": state.tracking_state,
+                    "target": state.last_target
+                }
                 try:
                     # 1. YOLO Inference with Tracking
                     results = manager.model.track(frame_to_process, persist=True, verbose=False, conf=0.3)
-                    
+
                     target_data = None
-                    if results and len(results) > 0 and results[0].boxes.id is not None:
-                        # Find the best target (e.g., first detected person if multiple)
-                        # For simplicity, take the first one with a track_id
+                    labels = []
+                    event_map_coord = None
+                    if results and len(results) > 0 and results[0].boxes is not None and len(results[0].boxes) > 0:
                         boxes = results[0].boxes
-                        track_ids = boxes.id.int().cpu().tolist()
+                        labels = _labels_from_result(results[0])
+                        track_ids = boxes.id.int().cpu().tolist() if boxes.id is not None else [None] * len(boxes)
                         confs = boxes.conf.cpu().tolist()
                         xyxy = boxes.xyxy.cpu().tolist()
-                        
-                        # Use the first one
+
                         idx = 0 
                         x1, y1, x2, y2 = xyxy[idx]
                         cx = (x1 + x2) / 2.0
                         cy = (y1 + y2) / 2.0
-                        
+
+                        local_map_coord = None
+                        local_base_coord = None
+                        if manager.h_matrix is not None and manager.t_base_from_map is not None:
+                            try:
+                                map_x, map_y = pixel_to_map(cx, cy, manager.h_matrix)
+                                event_map_coord = {"frame_id": "map", "x": round(map_x, 3), "y": round(map_y, 3)}
+                                if robot_id == "local":
+                                    base_x, base_y = map_to_base(map_x, map_y, manager.t_base_from_map)
+                                    local_map_coord = event_map_coord
+                                    local_base_coord = {
+                                        "frame_id": "base_link",
+                                        "x": round(base_x, 3),
+                                        "y": round(base_y, 3),
+                                    }
+                            except Exception as e:
+                                logging.debug(f"Coord Transform Error ({robot_id}): {e}")
+
                         target_data = {
                             "track_id": track_ids[idx],
                             "conf": round(confs[idx], 2),
                             "cx": round(cx, 1),
                             "cy": round(cy, 1),
-                            "bbox": [int(x1), int(y1), int(x2), int(y2)]
+                            "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                            "map_coord": local_map_coord,
+                            "base_coord": local_base_coord,
                         }
                         
                         state.tracking_state = "TRACK"
@@ -200,7 +307,7 @@ def inference_worker_task():
                         if state.tracking_state == "LOST" and (now - state.last_track_time > 1.0):
                             state.tracking_state = "SEARCH"
                             state.last_target = None
-                        
+
                         target_data = state.last_target
                         processed_frame = frame_to_process.copy()
 
@@ -215,6 +322,18 @@ def inference_worker_task():
                         "target": target_data
                     }
 
+                    # 2-1. Fire Event Logging (UDP sources only)
+                    event_logger.handle_detection(
+                        robot_id=state.robot_id,
+                        is_udp_source=state.is_udp_source,
+                        now=now,
+                        seq=state.seq_counter,
+                        labels=labels,
+                        frame_for_log=processed_frame,
+                        map_coord=event_map_coord,
+                        fallback_start_time=state.last_receive_time,
+                    )
+
                     # 3. Broadcast over UDP
                     if state.last_addr:
                         target_port = ROBOT_CONFIG[robot_id]["obs_port"]
@@ -227,7 +346,13 @@ def inference_worker_task():
                             logging.debug(f"Broadcast Error ({robot_id}): {e}")
 
                     # 4. Report to Main Server
-                    if target_data:
+                    # local only: send map/base coordinates to main
+                    if (
+                        target_data
+                        and robot_id == "local"
+                        and target_data.get("map_coord") is not None
+                        and target_data.get("base_coord") is not None
+                    ):
                         try:
                             # Using synchronous httpx call or a thread-safe way
                             # For simplicity in this threaded environment:
@@ -329,6 +454,14 @@ async def get_status():
             "is_active": (time.time() - s.last_receive_time) < 2.0
         }
     return status
+
+@app.get("/api/events")
+async def get_events(limit: int = 50):
+    """Latest locally saved AI event logs (newest first)."""
+    try:
+        return event_logger.read_local_events(limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read event logs: {e}")
 
 @app.get("/")
 def read_root():
