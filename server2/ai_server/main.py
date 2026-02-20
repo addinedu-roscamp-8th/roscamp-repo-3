@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from typing import List, Optional, Dict
 import numpy as np
 import time
@@ -10,7 +9,9 @@ import cv2
 import json
 import logging
 import httpx
+from pathlib import Path
 from ultralytics import YOLO
+from coord_transform import load_map_base_transforms, pixel_to_map, map_to_base
 
 # --- Configuration ---
 MAIN_SERVER_IP = "192.168.0.30"
@@ -75,7 +76,8 @@ class RobotManager:
             rid: RobotState(rid, cfg) for rid, cfg in configs.items()
         }
         # Load single specific model
-        self.model = YOLO("models/best_fire_det.pt") 
+        self.model = YOLO("models/best_fire_det.pt")
+        self.h_matrix, self.t_base_from_map = load_map_base_transforms()
         logging.info("YOLO Model (best_fire_det.pt) loaded successfully.")
 
     def get_robot(self, robot_id) -> Optional[RobotState]:
@@ -139,6 +141,17 @@ def usb_camera_task(robot_state: RobotState):
 
     cap.release()
 
+def _labels_from_result(result) -> List[str]:
+    if not result or result.boxes is None or result.boxes.cls is None:
+        return []
+    cls_ids = result.boxes.cls.int().cpu().tolist()
+    names = result.names if hasattr(result, "names") else {}
+    labels = []
+    for cid in cls_ids:
+        label = names.get(cid, str(cid))
+        labels.append(str(label).lower())
+    return labels
+
 # --- Inference Worker Task ---
 def inference_worker_task():
     """Central scheduler for inference with tracking and UDP broadcast."""
@@ -161,31 +174,58 @@ def inference_worker_task():
             
             if frame_to_process is not None:
                 start_time = time.time()
+                obs_msg = {
+                    "robot_id": state.robot_id,
+                    "t": round(now, 3),
+                    "seq": state.seq_counter,
+                    "img": {"W": state.width, "H": state.height},
+                    "state": state.tracking_state,
+                    "target": state.last_target
+                }
                 try:
                     # 1. YOLO Inference with Tracking
                     results = manager.model.track(frame_to_process, persist=True, verbose=False, conf=0.3)
-                    
+
                     target_data = None
-                    if results and len(results) > 0 and results[0].boxes.id is not None:
-                        # Find the best target (e.g., first detected person if multiple)
-                        # For simplicity, take the first one with a track_id
+                    labels = []
+                    event_map_coord = None
+                    if results and len(results) > 0 and results[0].boxes is not None and len(results[0].boxes) > 0:
                         boxes = results[0].boxes
-                        track_ids = boxes.id.int().cpu().tolist()
+                        labels = _labels_from_result(results[0])
+                        track_ids = boxes.id.int().cpu().tolist() if boxes.id is not None else [None] * len(boxes)
                         confs = boxes.conf.cpu().tolist()
                         xyxy = boxes.xyxy.cpu().tolist()
-                        
-                        # Use the first one
+
                         idx = 0 
                         x1, y1, x2, y2 = xyxy[idx]
                         cx = (x1 + x2) / 2.0
                         cy = (y1 + y2) / 2.0
-                        
+
+                        local_map_coord = None
+                        local_base_coord = None
+                        if manager.h_matrix is not None and manager.t_base_from_map is not None:
+                            try:
+                                map_x, map_y = pixel_to_map(cx, cy, manager.h_matrix)
+                                event_map_coord = {"frame_id": "map", "x": round(map_x, 3), "y": round(map_y, 3)}
+                                if robot_id == "local":
+                                    base_x, base_y = map_to_base(map_x, map_y, manager.t_base_from_map)
+                                    local_map_coord = event_map_coord
+                                    local_base_coord = {
+                                        "frame_id": "base_link",
+                                        "x": round(base_x, 3),
+                                        "y": round(base_y, 3),
+                                    }
+                            except Exception as e:
+                                logging.debug(f"Coord Transform Error ({robot_id}): {e}")
+
                         target_data = {
                             "track_id": track_ids[idx],
                             "conf": round(confs[idx], 2),
                             "cx": round(cx, 1),
                             "cy": round(cy, 1),
-                            "bbox": [int(x1), int(y1), int(x2), int(y2)]
+                            "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                            "map_coord": local_map_coord,
+                            "base_coord": local_base_coord,
                         }
                         
                         state.tracking_state = "TRACK"
@@ -227,7 +267,13 @@ def inference_worker_task():
                             logging.debug(f"Broadcast Error ({robot_id}): {e}")
 
                     # 4. Report to Main Server
-                    if target_data:
+                    # local only: send map/base coordinates to main
+                    if (
+                        target_data
+                        and robot_id == "local"
+                        and target_data.get("map_coord") is not None
+                        and target_data.get("base_coord") is not None
+                    ):
                         try:
                             # Using synchronous httpx call or a thread-safe way
                             # For simplicity in this threaded environment:
