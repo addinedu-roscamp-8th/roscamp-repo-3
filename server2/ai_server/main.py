@@ -11,12 +11,16 @@ import logging
 import httpx
 from pathlib import Path
 from ultralytics import YOLO
+from event_logger import FireEventLogger
 from coord_transform import load_map_base_transforms, pixel_to_map, map_to_base
 
 # --- Configuration ---
 MAIN_SERVER_IP = "192.168.0.30"
 MAIN_SERVER_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/coordinates"
+MAIN_SERVER_EVENT_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/event-log"
 USB_CAMERA_INDEX = 0 # Default USB Camera
+EVENT_IMAGE_DIR = Path(__file__).resolve().parent / "event_logs" / "images"
+EVENT_LOG_FILE = Path(__file__).resolve().parent / "event_logs" / "events.jsonl"
 
 app = FastAPI(title="LOVO Multi-Robot AI Analysis Server")
 
@@ -33,6 +37,7 @@ class RobotState:
         self.robot_id = robot_id
         self.name = config["name"]
         self.port = config["port"]
+        self.is_udp_source = self.port is not None
         
         self.latest_frame = None
         self.processed_frame = None
@@ -85,6 +90,14 @@ class RobotManager:
 
 manager = RobotManager(ROBOT_CONFIG)
 
+# --- Event Logger ---
+event_logger = FireEventLogger(
+    main_server_event_url=MAIN_SERVER_EVENT_URL,
+    event_image_dir=EVENT_IMAGE_DIR,
+    event_log_file=EVENT_LOG_FILE,
+    fire_timeout_sec=15.0,
+)
+
 # --- UDP Receiver Task ---
 def udp_receiver_task(robot_state: RobotState):
     """Independent UDP Receiver for each robot port."""
@@ -109,6 +122,8 @@ def udp_receiver_task(robot_state: RobotState):
                     robot_state.latest_frame = frame
                     robot_state.last_addr = addr[0]
                     robot_state.height, robot_state.width = frame.shape[:2]
+                    if robot_state.is_udp_source:
+                        event_logger.on_frame_received(robot_state.robot_id, time.time())
                 robot_state.update_receive_stats()
         except socket.timeout:
             continue
@@ -240,7 +255,7 @@ def inference_worker_task():
                         if state.tracking_state == "LOST" and (now - state.last_track_time > 1.0):
                             state.tracking_state = "SEARCH"
                             state.last_target = None
-                        
+
                         target_data = state.last_target
                         processed_frame = frame_to_process.copy()
 
@@ -254,6 +269,18 @@ def inference_worker_task():
                         "state": state.tracking_state,
                         "target": target_data
                     }
+
+                    # 2-1. Fire Event Logging (UDP sources only)
+                    event_logger.handle_detection(
+                        robot_id=state.robot_id,
+                        is_udp_source=state.is_udp_source,
+                        now=now,
+                        seq=state.seq_counter,
+                        labels=labels,
+                        frame_for_log=processed_frame,
+                        map_coord=event_map_coord,
+                        fallback_start_time=state.last_receive_time,
+                    )
 
                     # 3. Broadcast over UDP
                     if state.last_addr:
@@ -375,6 +402,14 @@ async def get_status():
             "is_active": (time.time() - s.last_receive_time) < 2.0
         }
     return status
+
+@app.get("/api/events")
+async def get_events(limit: int = 50):
+    """Latest locally saved AI event logs (newest first)."""
+    try:
+        return event_logger.read_local_events(limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read event logs: {e}")
 
 @app.get("/")
 def read_root():
