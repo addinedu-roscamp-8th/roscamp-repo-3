@@ -11,21 +11,21 @@ poses: # for aruco detect & pick & down offset positions
     note: "1번 상차"
 
   "2":
-    xyz_cm:    [0.15, 24.83, 5.26]
-    rpy_deg:   [0.0, -90, 0.0]
+    xyz_cm:    [0.91, 22.5, 5.75]
+    rpy_deg:   [0.4, -89.7, 0.35]
     offsets:
-      "4": # 다리
-        offset_cm: [3.0, -6.0, 8.0]
+      "4": # 상판
+        offset_cm: [-2.6, -3.0, 9]
         z_lift_cm: 8.0
       "5": # 키트
-        offset_cm: [0.0, 0.0, 0.0]
-        z_lift_cm: 8.0
-      "6": # 상판
-        offset_cm: [-2.5, -2.0, 8.0]
+        offset_cm: [4, -2, 8.0]
+        z_lift_cm: 7.0
+      "6": # 다리
+        offset_cm: [3.5, -7, 7.5]
         z_lift_cm: 8.0
       "7": # 바퀴
-        offset_cm: [3.0, -4.0, 5.3]
-        z_lift_cm: 6.0
+        offset_cm: [3, -5, 8.0]
+        z_lift_cm: 9.0
     note: "2번 상차"
 
   "3":
@@ -36,36 +36,36 @@ poses: # for aruco detect & pick & down offset positions
     note: "3번 상차"
 
   "4":
-    xyz_cm:    [11, 7,  16.5]
-    rpy_deg:   [ 4.5, -66, -39]
-    offset_cm: [ -0.5,  -0.5,   5.5 ]
-    z_lift_cm: 3.0
-    note: "다리 픽업(10시)"
+    xyz_cm:    [12.43, 9.57,  21.47]
+    rpy_deg:   [ 3.47, -66.81, -34.23]
+    offset_cm: [ -0.8, -1.2, 4.0]
+    z_lift_cm: 5.5
+    note: "상판 픽업"
 
   "5":
-    xyz_cm:    [0.0, 0.0, 0.0]
-    rpy_deg:   [0.0, 0.0, 0.0]
-    offset_cm: [0.0, 0.0, 0.0]
-    z_lift_cm: 5.0
+    xyz_cm:    [8.66, -12.45, 19.53]
+    rpy_deg:   [2.97, -75.83, -131]
+    offset_cm: [-2, -1, 5.0]
+    z_lift_cm: 10.0
     note: "키트 픽업"
   
   "6":
-    xyz_cm:    [-6.40, 11.09, 15.71]
-    rpy_deg:   [ 0, -57.76, 50.0]
-    offset_cm: [ 4.0,   0.0,   4.5 ]
-    z_lift_cm: 3.0
-    note: "상판 픽업(8시)"
+    xyz_cm:    [-8.32, 14.6, 16.9]
+    rpy_deg:   [ 1.21, -69.1, 47.5]
+    offset_cm: [ 2.5, 1.5, 4.5]
+    z_lift_cm: 7.0
+    note: "다리 픽업"
 
   "7":
-    xyz_cm:    [-10, -6,  14.6]
-    rpy_deg:   [ 7, -62, 145]
-    offset_cm: [ 0.5,  -0.3,   0.0 ]
-    z_lift_cm: 6.0
-    note: "바퀴 픽업(4시)"
+    xyz_cm:    [-11, -10.7,  11.5]
+    rpy_deg:   [ 4.9, -82.1, 153.13]
+    offset_cm: [ 1.0, -1.0, 4.0]
+    z_lift_cm: 7.0
+    note: "바퀴 픽업"
 
   "8":
-    xyz_cm:    [4.8, 11.4, 32.6]
-    rpy_deg:   [2, -3, 5]
+    xyz_cm:    [4.76, 12, 42]
+    rpy_deg:   [-1.27, 7.74, 5.40]
     offset_cm: [0.0, 0.0, 0.0]
     z_lift_cm: 0.0
     note: "대기 위치"
