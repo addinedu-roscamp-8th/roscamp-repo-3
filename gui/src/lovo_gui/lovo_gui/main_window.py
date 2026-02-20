@@ -68,6 +68,9 @@ class MyMainWindow(QMainWindow):
         self.tabs = self._create_tabs()
         left_layout.addWidget(self.tabs)
 
+        # 서버 상태 동기화 구독
+        self.comm_manager.server_enabled_changed.connect(self._on_server_state_sync)
+
         # 오른쪽: 사이드바
         sidebar = self._create_sidebar()
         main_layout.addWidget(sidebar)
@@ -238,6 +241,15 @@ class MyMainWindow(QMainWindow):
             print(f"[UI] server_enabled set to {new_state}")
         except Exception as e:
             print(f"[UI] _server_disconnect error: {e}")
+
+    def _on_server_state_sync(self, enabled):
+        """서버 상태 신호에 따라 사이드바 버튼 동기화"""
+        if enabled:
+            self.btn_server_disconnect.setText("서버 연결 해제")
+            self.btn_server_disconnect.setStyleSheet(STYLE_BUTTON_GRAY)
+        else:
+            self.btn_server_disconnect.setText("서버 연결")
+            self.btn_server_disconnect.setStyleSheet(STYLE_BUTTON_ORANGE)
 
     def _sync_topview_camera_button(self, *_args):
         """탑뷰 카메라 버튼 텍스트/스타일 동기화"""

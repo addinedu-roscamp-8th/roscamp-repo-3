@@ -108,6 +108,35 @@ def get_materials():
     finally:
         if 'conn' in locals() and conn.is_connected():
             conn.close()
+            
+def get_customers():
+    """모든 고객 정보를 가져옵니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT customer_id, name, phone, address, created_at FROM customer ORDER BY customer_id DESC")
+        rows = cursor.fetchall()
+        return rows
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+@app.get("/api/charging-stations")
+def get_charging_stations():
+    """모든 충전소 정보를 가져옵니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT charger_id, name, x, y, status FROM charging_station")
+        rows = cursor.fetchall()
+        return rows
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
 
 
 
@@ -129,7 +158,43 @@ def get_robots():
     finally:
         if 'conn' in locals() and conn.is_connected():
             conn.close()
+@app.get("/api/robot-jobs")
+def get_robot_jobs():
+    """최근 로봇 작업 목록을 가져옵니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT job_id, order_id, robot_id, job_type, status, created_at, started_at, finished_at 
+            FROM robot_job 
+            ORDER BY created_at DESC LIMIT 50
+        """)
+        rows = cursor.fetchall()
+        return rows
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
 
+@app.get("/api/robot-logs")
+def get_robot_logs():
+    """최근 로봇 상태 로그를 가져옵니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT log_id, robot_id, pose_x, pose_y, battery_percent, action_state, ts 
+            FROM robot_state_log 
+            ORDER BY ts DESC LIMIT 100
+        """)
+        rows = cursor.fetchall()
+        return rows
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
 
 @app.post("/api/status")
 def update_robot_status(status_data: dict):
@@ -233,7 +298,24 @@ def create_order(order: OrderCreate):
     finally:
         if 'conn' in locals() and conn.is_connected():
             conn.close()
-
+@app.get("/api/inventory-logs")
+def get_inventory_logs():
+    """최근 자재 재고 변동 기록을 가져옵니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT tx_id, material_id, order_id, tx_type, qty_delta, reason, created_at 
+            FROM inventory_tx 
+            ORDER BY created_at DESC LIMIT 50
+        """)
+        rows = cursor.fetchall()
+        return rows
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
 @app.get("/api/orders")
 def get_orders():
     """최근 주문 목록을 가져옵니다."""
@@ -500,7 +582,24 @@ def post_ai_event(data: AIEventLogData):
     finally:
         if 'conn' in locals() and conn.is_connected():
             conn.close()
-
+@app.get("/api/fire-logs")
+def get_fire_logs():
+    """최근 화재 감지 기록을 가져옵니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT incident_id, occurred_at, location, severity, description, image_path, is_handled, handled_at 
+            FROM fire_incidents 
+            ORDER BY occurred_at DESC LIMIT 50
+        """)
+        rows = cursor.fetchall()
+        return rows
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
 
 if __name__ == '__main__':
     uvicorn.run(app, host='0.0.0.0', port=5000)

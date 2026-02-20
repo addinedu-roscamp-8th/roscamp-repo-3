@@ -1,15 +1,16 @@
 -- =========================================================
 -- factory_full_schema.sql (MySQL 8+, InnoDB, utf8mb4)
--- 테이블 8개 + (분리된) 자재 마스터 + 재고변동기록 포함
--- 1) robot
--- 2) orders
--- 3) customer
--- 4) charging_station
--- 5) furniture (가구 + 자재구성 통합)
--- 6) inventory_tx (자재 재고변동기록)
--- 7) robot_job
--- 8) robot_state_log
--- + material (자재 마스터)
+-- 총 테이블 10개
+-- 1) customer (고객)
+-- 2) charging_station (충전소)
+-- 3) material (자재 마스터)
+-- 4) furniture (가구 + 자재구성 통합)
+-- 5) orders (주문)
+-- 6) robot (로봇 상태)
+-- 7) robot_job (로봇 작업)
+-- 8) robot_state_log (로봇 상태 로그)
+-- 9) inventory_tx (자재 재고변동기록)
+-- 10) fire_incidents (화재 사건 로그)
 -- =========================================================
 
 CREATE DATABASE IF NOT EXISTS factory_system DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci;
@@ -17,7 +18,7 @@ CREATE DATABASE IF NOT EXISTS factory_system DEFAULT CHARACTER SET utf8mb4 DEFAU
 USE factory_system;
 
 -- ---------------------------------------------------------
--- 3) 고객
+-- 1) 고객
 -- ---------------------------------------------------------
 CREATE TABLE customer (
     customer_id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -29,7 +30,7 @@ CREATE TABLE customer (
 ) ENGINE = InnoDB;
 
 -- ---------------------------------------------------------
--- 4) 충전소
+-- 2) 충전소
 -- ---------------------------------------------------------
 CREATE TABLE charging_station (
     charger_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -46,7 +47,7 @@ CREATE TABLE charging_station (
 ) ENGINE = InnoDB;
 
 -- ---------------------------------------------------------
--- 자재 마스터 (분리)
+-- 3) 자재 마스터 (분리)
 -- ---------------------------------------------------------
 CREATE TABLE material (
     material_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -59,7 +60,7 @@ CREATE TABLE material (
 ) ENGINE = InnoDB;
 
 -- ---------------------------------------------------------
--- 5) 가구 (가구 + 자재구성 통합)
+-- 4) 가구 (가구 + 자재구성 통합)
 -- furniture_id는 1~14 고정(침대4/책상4/의자8)
 -- 의자에서 바퀴가 없는 경우: wheel_material_id NULL, wheel_qty_per_unit=0
 -- ---------------------------------------------------------
@@ -85,7 +86,7 @@ CREATE TABLE furniture (
 ) ENGINE = InnoDB;
 
 -- ---------------------------------------------------------
--- 2) 주문 
+-- 5) 주문 
 -- ---------------------------------------------------------
 CREATE TABLE orders (
     order_id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -109,7 +110,7 @@ CREATE TABLE orders (
 ) ENGINE = InnoDB;
 
 -- ---------------------------------------------------------
--- 1) 로봇 (현재 상태 테이블)
+-- 6) 로봇 (현재 상태 테이블)
 -- 로봇팔 2대, 운송 핑키 3 
 -- ---------------------------------------------------------
 CREATE TABLE robot (
@@ -216,7 +217,7 @@ CREATE TABLE robot_state_log (
 ) ENGINE = InnoDB;
 
 -- ---------------------------------------------------------
--- 6) 자재 재고변동기록 inventory_tx
+-- 9) 자재 재고변동기록 inventory_tx
 -- OUT은 qty_delta를 음수로 저장하는 것을 권장
 -- ---------------------------------------------------------
 CREATE TABLE inventory_tx (
@@ -231,4 +232,20 @@ CREATE TABLE inventory_tx (
     CONSTRAINT fk_invtx_order FOREIGN KEY (order_id) REFERENCES orders (order_id) ON DELETE SET NULL ON UPDATE CASCADE,
     KEY idx_invtx_material_time (material_id, created_at),
     KEY idx_invtx_order (order_id)
+) ENGINE = InnoDB;
+
+-- ---------------------------------------------------------
+-- 10) 화재 사건 로그 fire_incidents
+-- ---------------------------------------------------------
+CREATE TABLE fire_incidents (
+    incident_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    location VARCHAR(255) NULL,
+    severity ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') NOT NULL DEFAULT 'MEDIUM',
+    description TEXT NULL,
+    image_path VARCHAR(512) NULL,
+    is_handled BOOLEAN NOT NULL DEFAULT FALSE,
+    handled_at TIMESTAMP NULL,
+    KEY idx_fire_time (occurred_at),
+    KEY idx_fire_handled (is_handled)
 ) ENGINE = InnoDB;

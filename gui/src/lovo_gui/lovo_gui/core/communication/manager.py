@@ -2,16 +2,19 @@
 import subprocess
 from datetime import datetime
 
+from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QLabel
 
 from lovo_gui.core.api_client import APIClient
 from .state_store import ConnectionStateStore
 
 
-class CommunicationManager:
+class CommunicationManager(QObject):
     """로봇 통신 관리"""
+    server_enabled_changed = pyqtSignal(bool)
 
     def __init__(self, log_viewer=None):
+        super().__init__()
         self.log_viewer = log_viewer
         self.api_client = APIClient()
         self.state_store = ConnectionStateStore()
@@ -111,3 +114,4 @@ class CommunicationManager:
     def set_server_enabled(self, enabled: bool):
         """서버 폴링 허용 여부 설정"""
         self.server_enabled = bool(enabled)
+        self.server_enabled_changed.emit(self.server_enabled)
