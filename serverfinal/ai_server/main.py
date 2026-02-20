@@ -13,6 +13,7 @@ from pathlib import Path
 from ultralytics import YOLO
 from event_logger import FireEventLogger
 from coord_transform import load_map_base_transforms, pixel_to_map, map_to_base
+from gui_alert_overlay import GuiAlertOverlay
 
 # --- Configuration ---
 MAIN_SERVER_IP = "192.168.0.30"
@@ -24,6 +25,8 @@ EVENT_LOG_FILE = Path(__file__).resolve().parent / "event_logs" / "events.jsonl"
 GUI_PC_IP = "192.168.0.13"
 GUI_UDP_PORT = 5930
 GUI_JPEG_QUALITY = 70
+GUI_FIRE_TRIGGER_LABELS = {"fire"}
+GUI_EXTINGUISH_TRIGGER_LABELS = {"ashes", "ash"}
 
 # Local camera crop settings (pixels)
 CROP_TOP = 50
@@ -111,6 +114,13 @@ event_logger = FireEventLogger(
     fire_timeout_sec=15.0,
 )
 
+gui_alert_overlay = GuiAlertOverlay(
+    fire_labels={"fire"},
+    ashes_labels={"ashes", "ash"},
+    blink_hz=2.0,
+    extinguish_text_duration_sec=5.0,
+)
+
 
 def _apply_local_camera_adjustments(frame: np.ndarray) -> np.ndarray:
     h, w = frame.shape[:2]
@@ -129,6 +139,7 @@ def _apply_local_camera_adjustments(frame: np.ndarray) -> np.ndarray:
     elif CAMERA_FLIP_VERTICAL:
         frame = cv2.flip(frame, 0)
     return frame
+
 
 # --- UDP Receiver Task ---
 def udp_receiver_task(robot_state: RobotState):
@@ -185,9 +196,10 @@ def usb_camera_task(robot_state: RobotState):
             robot_state.height, robot_state.width = frame.shape[:2]
 
         try:
+            gui_frame = gui_alert_overlay.apply_overlay(frame.copy(), time.time())
             ok, jpeg = cv2.imencode(
                 ".jpg",
-                frame,
+                gui_frame,
                 [int(cv2.IMWRITE_JPEG_QUALITY), GUI_JPEG_QUALITY],
             )
             if ok:
@@ -321,6 +333,14 @@ def inference_worker_task():
                         "state": state.tracking_state,
                         "target": target_data
                     }
+
+                    gui_labels: List[str] = []
+                    if robot_id == "local":
+                        gui_labels = [label for label in labels if label in GUI_FIRE_TRIGGER_LABELS]
+                    elif state.is_udp_source:
+                        gui_labels = [label for label in labels if label in GUI_EXTINGUISH_TRIGGER_LABELS]
+                    if gui_labels:
+                        gui_alert_overlay.update_from_labels(gui_labels, now)
 
                     # 2-1. Fire Event Logging (UDP sources only)
                     event_logger.handle_detection(
