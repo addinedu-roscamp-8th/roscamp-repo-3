@@ -37,7 +37,7 @@ class CommunicationManager:
         """서버 API 연결 확인"""
         url = ip_address
         if ":" not in ip_address:
-            url = f"{ip_address}:5000"
+            url = f"{ip_address}:4000"
 
         self.api_client.set_base_url(url)
 
