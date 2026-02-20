@@ -1,22 +1,29 @@
 import os
+import glob
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import ExecuteProcess, SetEnvironmentVariable
 
 def generate_launch_description():
-    # 설정 파일들과 스크립트가 위치한 디렉토리 경로 (현재 파일 기준 상대 경로 사용 권장하나, 여기서는 절대경로 수정)
-    # 기존: /home/addinedu/Desktop/roscamp-repo-3/server/pinky_control_server
-    # 변경: /home/addinedu/Desktop/roscamp-repo-3/server/mainserver/pinky_server
-    current_dir = '/home/addinedu/Desktop/roscamp-repo-3/server/mainserver/pinky_server'
-    config_dir = '/home/addinedu/Desktop/roscamp-repo-3/server/mainserver/config/bridge_pinky'
+    # 1. 절대 경로 설정 (Home 디렉토리 기준)
+    # ~/Desktop/roscamp-repo-3/serverfinal/mainserver
+    base_path = os.path.join(
+        os.path.expanduser('~'), 
+        'Desktop', 
+        'roscamp-repo-3', 
+        'serverfinal', 
+        'mainserver'
+    )
+    
+    # 설정 파일 경로: config/bridge_pinky
+    config_dir = os.path.join(base_path, 'config', 'bridge_pinky')
     
     launch_actions = [
-        # 1. ROS_DOMAIN_ID를 59로 설정 (관제 PC용)
+        # ROS_DOMAIN_ID를 59로 설정 (관제 PC용)
         SetEnvironmentVariable('ROS_DOMAIN_ID', '59'),
     ]
 
     # 2. Pinky 통합 도메인 브릿지 실행 (폴더 내의 모든 yaml 파일 실행)
-    import glob
     yaml_files = glob.glob(os.path.join(config_dir, '*.yaml'))
     
     for yaml_file in yaml_files:
@@ -31,14 +38,14 @@ def generate_launch_description():
             )
         )
     
+    # 3. 로컬 상태 모니터링 실행 (대시보드)
+    # 기존 'current_dir'를 'base_path'로 수정했습니다.
     launch_actions.append(
-        # 3. 로컬 상태 모니터링 실행 (대시보드)
         ExecuteProcess(
-            cmd=['python3', os.path.join(current_dir, 'status_monitor.py')],
+            cmd=['python3', os.path.join(base_path, 'status_monitor.py')],
             output='screen',
             emulate_tty=True
         )
     )
 
     return LaunchDescription(launch_actions)
-

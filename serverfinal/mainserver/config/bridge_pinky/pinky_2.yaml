@@ -1,36 +1,23 @@
 name: pinky_2_bridge
 topics:
-  # --- [상태 및 배터리] ---
-  /status:
-    from_domain: 51
-    to_domain: 59
-    to_topic: /pinky_2/status
-    type: std_msgs/msg/Int8
-
-  # --- [교통 제어: Request] 핑키 -> 서버 ---
-  /traffic_request:
-    from_domain: 51
-    to_domain: 59
-    to_topic: /pinky_2/traffic_request
+  #1. 로봇들(1,2,3) -> 관제탑(50,51,52)으로 '요청' 보내기
+  /traffic/request:
     type: std_msgs/msg/String
-
-  # --- [교통 제어: Clear] 핑키 -> 서버 ---
-  /traffic_clear:
-    from_domain: 51
+    from_domain: 52
     to_domain: 59
-    to_topic: /pinky_2/traffic_clear
-    type: std_msgs/msg/String
+    remap: /pinky2/traffic/request
 
-  # --- [교통 제어: Response] 서버 -> 핑키 (WAIT/OK 응답) ---
-  /traffic_response:
+  /traffic/response:
+    type: std_msgs/msg/String
     from_domain: 59
-    to_domain: 51
-    to_topic: /traffic_response
-    type: std_msgs/msg/String
+    to_domain: 52
+    remap: /pinky2/traffic/response
 
-  # --- [교통 제어: Release] 서버 -> 핑키 (방송용) ---
-  /traffic_release:
-    from_domain: 59
-    to_domain: 51
-    to_topic: /traffic_release
-    type: std_msgs/msg/String
+  
+  /battery/present:
+    type: std_msgs/msg/Float32
+    from_domain: 52
+    to_domain: 59
+    remap: /pinky2/battery/present
+  
+  
