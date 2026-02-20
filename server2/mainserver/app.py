@@ -61,6 +61,17 @@ class AICoordinateData(BaseModel):
     state: str
     target: Optional[AICoordinateTarget] = None
 
+class AIEventLogData(BaseModel):
+    robot_id: str
+    event_type: str
+    message: str
+    timestamp: str
+    seq: int
+    label: Optional[str] = None
+    map_coord: Optional[dict] = None
+    image_path: Optional[str] = None
+    image_b64: Optional[str] = None
+
 @app.get("/api/products")
 def get_products():
     """Fetch structured furniture data."""
