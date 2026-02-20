@@ -50,6 +50,8 @@ class AICoordinateTarget(BaseModel):
     cx: Optional[float] = None
     cy: Optional[float] = None
     bbox: Optional[List[int]] = None
+    map_coord: Optional[dict] = None
+    base_coord: Optional[dict] = None
 
 class AICoordinateData(BaseModel):
     robot_id: str
