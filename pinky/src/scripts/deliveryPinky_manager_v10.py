@@ -20,13 +20,12 @@ class AdvancedTrafficManager(Node):
         self.charging_slots = {1: "robot3", 2: "robot2", 3: "robot1"}
         self.robot_states = {}
         
-        # [NEW] 통신 신뢰성을 위한 중복 방지 캐시
-        self.task_queue = deque(['WP4', 'WP6', 'WP8', 'WP4', 'WP6', 'WP8']) 
-        self.assigned_tasks = {}      # 로봇별 할당된 픽업지 저장 (중복 요청 방어)
-        self.packing_active = set()   # 현재 패킹 스레드가 돌고 있는 로봇
-        self.packing_done = set()     # 패킹이 완료된 로봇
+        self.task_queue = deque(['WP4', 'WP8', 'WP6', 'WP4', 'WP8', 'WP6']) 
+        self.assigned_tasks = {}      
+        self.packing_active = set()   
+        self.packing_done = set()     
 
-        self.get_logger().info("🚦 [V5 신뢰성 보장] 교통 관제 센터 가동 (100% ACK 시스템)")
+        self.get_logger().info("🚦 [V10] 교통 관제 센터 가동 (WP3 안전 해제 + 물리적 슬롯 해제 적용)")
 
     def get_edge_key(self, wp_a, wp_b):
         wps = sorted([wp_a, wp_b])
@@ -38,36 +37,40 @@ class AdvancedTrafficManager(Node):
             action = parts[0]
             robot_id = parts[1]
             
-            # --- [A] 주행 관제 ---
             if action in ["REQUEST", "RELEASE"]:
                 self.handle_navigation_traffic(action, robot_id, parts[2], parts[3])
 
-            # --- [B] 상태 보고 ---
             elif action == "REPORT_STATE":
                 state_num = int(parts[2])
                 self.robot_states[robot_id] = state_num
                 
-                # 상태 전환 시 이전 캐시 정리
+                # [해결 1] State 4 (패킹 구역 진입 완료) 시점에 WP3 등 모든 교차로 락 강제 해제
+                # (State 3에서는 여전히 WP3를 점유하고 있으므로 뒷차가 박지 못함!)
+                if state_num == 4:
+                    self.free_all_locks_for_robot(robot_id)
+                
                 if state_num == 3 and robot_id in self.assigned_tasks:
-                    del self.assigned_tasks[robot_id] # 픽업 완료했으니 캐시 삭제
+                    del self.assigned_tasks[robot_id] 
+                
                 if state_num == 5 and robot_id in self.packing_done:
-                    self.packing_done.remove(robot_id) # 복귀 시작했으니 캐시 삭제
-                if state_num == 2:
-                    self.free_charging_slot(robot_id) # 충전소 이탈
-
+                    self.packing_done.remove(robot_id) 
+                
                 self.respond_custom(f"{robot_id}|REPORT_ACK|{state_num}")
 
-            # --- [C] 작업 할당 ---
+            # [해결 2] 로봇이 안전 구역에 도달하여 명시적으로 슬롯을 반납할 때만 처리
+            elif action == "RELEASE_SLOT":
+                slot_num = int(parts[2])
+                if self.charging_slots.get(slot_num) == robot_id:
+                    self.charging_slots[slot_num] = None
+                    self.get_logger().info(f"🔋 {robot_id} 물리적 이탈 확인 완료. 슬롯 {slot_num} 비움.")
+                self.respond_custom(f"{robot_id}|RELEASE_SLOT_ACK|{slot_num}")
+
             elif action == "REQ_TASK":
                 self.handle_task_dispatch(robot_id)
-
-            # --- [D] 패킹 구역/작업 ---
             elif action == "CHECK_PACKING":
                 self.handle_check_packing(robot_id)
             elif action == "PACKING_START":
                 self.handle_packing_process(robot_id)
-
-            # --- [E] 충전소 관련 ---
             elif action == "CHARGING_REQ":
                 self.handle_charging_request(robot_id)
             elif action == "CHECK_ADVANCE":
@@ -77,32 +80,38 @@ class AdvancedTrafficManager(Node):
         except Exception as e:
             self.get_logger().error(f"Msg Error: {e}")
 
-    # ----------------------------------------------------------------
-    # [NEW] 견고해진 서버 로직
-    # ----------------------------------------------------------------
+    # 로봇이 물고 있는 모든 맵 노드 점유권 일괄 압수 (WP3 반납 문제 해결)
+    def free_all_locks_for_robot(self, robot_id):
+        edges_to_del = [e for e, r in self.locked_edges.items() if r == robot_id]
+        nodes_to_del = [n for n, r in self.locked_nodes.items() if r == robot_id]
+        
+        for e in edges_to_del: 
+            del self.locked_edges[e]
+        for n in nodes_to_del: 
+            del self.locked_nodes[n]
+            self.get_logger().info(f"🔓 [노드 안전 반납] {robot_id}가 점유중이던 {n} 해제 완료")
+            
+        for q in self.waiting_queues.values():
+            if robot_id in q: q.remove(robot_id)
+
     def handle_task_dispatch(self, robot_id):
-        # 이미 할당받았는데 네트워크 문제로 또 요청한 경우 (동일 목적지 재전송)
         if robot_id in self.assigned_tasks:
             wp = self.assigned_tasks[robot_id]
             self.respond_custom(f"{robot_id}|DISPATCH|{wp}")
         else:
             if not self.task_queue:
-                self.task_queue.extend(['WP4', 'WP6', 'WP8']) # 큐가 비면 채움
+                self.task_queue.extend(['WP4', 'WP8', 'WP6']) 
             wp = self.task_queue.popleft()
             self.assigned_tasks[robot_id] = wp
             self.get_logger().info(f"📋 [작업할당] {robot_id} -> {wp}")
             self.respond_custom(f"{robot_id}|DISPATCH|{wp}")
 
     def handle_packing_process(self, robot_id):
-        # 1. 이미 끝난 작업 재요청 시
         if robot_id in self.packing_done:
             self.respond_custom(f"{robot_id}|PACKING_DONE|0")
             return
-        # 2. 이미 작업 중인 경우 무시 (대기)
         if robot_id in self.packing_active:
             return 
-
-        # 3. 처음 요청인 경우
         self.packing_active.add(robot_id)
         self.get_logger().info(f"📦 [패킹진행] {robot_id} 작업 시작...")
         
@@ -116,24 +125,14 @@ class AdvancedTrafficManager(Node):
         threading.Thread(target=packing_job).start()
 
     def handle_check_advance(self, robot_id, current_slot):
-        """클라이언트가 스스로 '앞으로 가도 돼?' 물어보는 구조"""
         target_slot = current_slot + 1
-        
         if target_slot <= 3 and self.charging_slots[target_slot] is None:
-            # 이동 승인 및 서버 내 장부 수정
             self.charging_slots[target_slot] = robot_id
             self.charging_slots[current_slot] = None
             self.get_logger().info(f"📢 [자동정렬 승인] {robot_id}: {current_slot} -> {target_slot}")
             self.respond_custom(f"{robot_id}|ADVANCE_OK|{target_slot}")
         else:
             self.respond_custom(f"{robot_id}|STAY|{current_slot}")
-
-    def free_charging_slot(self, robot_id):
-        for slot, occupant in self.charging_slots.items():
-            if occupant == robot_id:
-                self.charging_slots[slot] = None
-                self.get_logger().info(f"🔋 {robot_id} 이탈. 슬롯 {slot} 비움.")
-                break
 
     def handle_charging_request(self, robot_id):
         for slot in [3, 2, 1]:
@@ -144,7 +143,7 @@ class AdvancedTrafficManager(Node):
         self.respond_custom(f"{robot_id}|CHARGING_WAIT|0")
 
     def handle_check_packing(self, requestor_id):
-        is_busy = any((rid != requestor_id and state == 4) for rid, state in self.robot_states.items())
+        is_busy = any((rid != requestor_id and (state == 3 or state == 4)) for rid, state in self.robot_states.items())
         if is_busy: self.respond_custom(f"{requestor_id}|PACKING_AREA_BUSY|0")
         else: self.respond_custom(f"{requestor_id}|PACKING_AREA_FREE|0")
 
@@ -176,7 +175,6 @@ class AdvancedTrafficManager(Node):
                 del self.locked_edges[edge_key]
             if prev_node in self.locked_nodes and self.locked_nodes[prev_node] == robot_id:
                 if prev_node != target_node: del self.locked_nodes[prev_node]
-            # [NEW] 해제도 ACK 응답
             self.respond_custom(f"{robot_id}|RELEASE_ACK|{current_wp}|{next_wp}")
 
     def respond_custom(self, raw_string):
