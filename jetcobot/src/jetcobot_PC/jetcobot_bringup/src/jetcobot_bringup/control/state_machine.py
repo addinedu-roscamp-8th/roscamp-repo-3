@@ -52,8 +52,8 @@ class PickPlaceStateMachine:
         
         # Timing configuration
         self.execution_timeout = 30.0  # seconds
-        self.gripper_wait_time = 0.5   # seconds (reduced from 4.0)
-        self.gripper_close_time = 0.5  # seconds (reduced from 2.0)
+        self.gripper_wait_time = 0.8   # seconds (reduced from 4.0)
+        self.gripper_close_time = 0.8  # seconds (reduced from 2.0)
         self.lift_distance = 0.1       # meters
         self.lift_timeout = 30.0       # seconds
         
