@@ -16,7 +16,7 @@ source install/setup.bash
 
 ```bash
 # Domain Bridge 노드 실행
-ros2 run lovo_main_server domain_bridge_node
+ros2 launch lovo_gui domain_bridge.launch.py
 ```
 
 ### 3. 로봇 컨트롤러 실행 (별도 터미널)
@@ -48,7 +48,7 @@ source install/setup.bash
 # ROS 환경이 설정된 상태에서
 ros2 run lovo_gui lovo_gui
 # 또는 (대체)
-python3 -m lovo_gui.main_window
+python3 main_window.py
 ```
 
 3) (옵션) AI 서버 실행
