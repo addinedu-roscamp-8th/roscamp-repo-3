@@ -3,7 +3,7 @@
 """
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64MultiArray, Bool, Int32, Float64
+from std_msgs.msg import Float64MultiArray, Bool, Int32, Float64, Int8
 from sensor_msgs.msg import JointState
 from lovo_interfaces.msg import CaptureImageWithCommand
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -20,6 +20,7 @@ class RobotArmController(Node, QObject):
     coords_updated = pyqtSignal(list)      # 현재 좌표 업데이트
     connection_changed = pyqtSignal(bool)  # 연결 상태 변경
     controller_log = pyqtSignal(str)       # controller 로그 메시지 (GUI로 전달)
+    robot_state_updated = pyqtSignal(int)  # 로봇 상태 업데이트 (Int8)
     
     def __init__(self, robot_name, robot_domain, context=None):
         Node.__init__(self, f'robot_arm_controller_{robot_domain}', context=context)
@@ -39,6 +40,7 @@ class RobotArmController(Node, QObject):
         self.robot_connected = False
         self.last_encoder_time = time.time()
         self.connection_timeout = 1.0
+        self.current_robot_state = 0  # 로봇 상태 (Int8)
         
         # Initialize publishers/subscribers centrally
         self._init_topics(robot_id)
@@ -79,6 +81,16 @@ class RobotArmController(Node, QObject):
                 self.coords_updated.emit(self.current_coords)
         except Exception:
             pass
+
+    def robot_state_callback(self, msg):
+        """로봇 상태 수신 (Int8)"""
+        try:
+            self.current_robot_state = int(msg.data)
+            self.get_logger().info(f"[DEBUG RobotController] robot_state 수신: {self.current_robot_state} (Domain: {self.robot_domain}, Name: {self.robot_name})")
+            self.robot_state_updated.emit(self.current_robot_state)
+            self.get_logger().info(f"[DEBUG RobotController] robot_state_updated 시그널 emit 완료")
+        except Exception as e:
+            self.get_logger().error(f"Error in robot_state_callback: {e}")
 
     # Note: callbacks for incoming Float64MultiArray/pose/coords were removed
     # because the corresponding subscriptions/publishers are no longer used.
@@ -167,6 +179,7 @@ class RobotArmController(Node, QObject):
         self._topic_subscribers = {}
         self._topic_subscribers['joint_states'] = self.create_subscription(JointState, f'/{robot_id}/joint_states', self.joint_states_callback, 10)
         self._topic_subscribers['tcp_pose'] = self.create_subscription(Float64MultiArray, f'/{robot_id}/PTP_tcp_pose', self.current_coords_callback, 10)
+        self._topic_subscribers['robot_state'] = self.create_subscription(Int8, f'/{robot_id}/robot_state', self.robot_state_callback, 10)
 
         # Backwards-compatible attributes used by other code
         self.pub_gripper = self._topic_publishers['gripper']
@@ -176,6 +189,7 @@ class RobotArmController(Node, QObject):
 
         self.subs_joint_states = self._topic_subscribers['joint_states']
         self.subs_tcp_Pose = self._topic_subscribers['tcp_pose']
+        self.subs_robot_state = self._topic_subscribers['robot_state']
 
     def get_publisher(self, name: str):
         """Return a publisher by logical name from the centralized registry.

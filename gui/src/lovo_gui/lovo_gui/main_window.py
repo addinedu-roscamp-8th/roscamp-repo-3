@@ -163,6 +163,11 @@ class MyMainWindow(QMainWindow):
         self.manual_tab.connect_controllers(self.communication_tab)
         self.manual_tab.bind_connection_state_store(self.comm_manager)
         
+        # Main 탭에 로봇 컨트롤러 연결 (robot_state 시그널용)
+        print(f"[DEBUG MainWindow] Main 탭에 robot_controllers 연결 중...")
+        print(f"[DEBUG MainWindow] robot_controllers: {list(self.communication_tab.robot_controllers.keys())}")
+        self.main_tab.connect_robot_controllers(self.communication_tab.robot_controllers)
+        
         # ROS Monitor 탭에 로봇 컨트롤러 전달
         self.ros_monitor_tab.set_robot_controllers(self.communication_tab.robot_controllers)
         

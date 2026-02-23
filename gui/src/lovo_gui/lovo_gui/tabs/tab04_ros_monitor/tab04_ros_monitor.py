@@ -5,6 +5,11 @@ import json
 from pathlib import Path
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel, QTableWidget, QTableWidgetItem, QHeaderView
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor
+from lovo_gui.constants import (
+    ROBOT_STATE_NAMES, ROBOT_STATE_DESCRIPTIONS, 
+    ROBOT_STATE_COLORS, ROBOT_STATE_EMOJIS
+)
 
 
 class RosMonitorTab(QWidget):
@@ -181,6 +186,9 @@ class RosMonitorTab(QWidget):
             controller.angles_updated.connect(lambda val, rid=robot_id: self._update_topic_value(rid, 'current_angles', val))
             controller.coords_updated.connect(lambda val, rid=robot_id: self._update_topic_value(rid, 'current_coords', val))
             controller.pose_updated.connect(lambda val, rid=robot_id: self._update_topic_value(rid, 'current_pose', val))
+            controller.robot_state_updated.connect(lambda val, rid=robot_id: self._update_topic_value(rid, 'robot_status', val))
+            
+            print(f"[DEBUG] set_robot_controllers: robot_id={robot_id}, 시그널 연결 완료 (robot_state_updated -> robot_status)")
     
     def _update_topic_value(self, robot_id, topic_name, value):
         """토픽 값 업데이트"""
@@ -195,6 +203,20 @@ class RosMonitorTab(QWidget):
                 value_str = f'[{len(value)} values]'
         else:
             value_str = str(value)
+        
+        # robot_status는 특별 처리: 숫자 -> 텍스트 변환
+        if topic_name == 'robot_status':
+            try:
+                state_code = int(value)
+                state_name = ROBOT_STATE_NAMES.get(state_code, f"UNKNOWN({state_code})")
+                state_desc = ROBOT_STATE_DESCRIPTIONS.get(state_code, "알 수 없음")
+                emoji = ROBOT_STATE_EMOJIS.get(state_code, "")
+                value_str = f"{emoji} {state_name} - {state_desc}"
+                # 색상 정보도 별도 저장
+                self.topic_values[robot_id][f'{topic_name}_color'] = ROBOT_STATE_COLORS.get(state_code, "#999999")
+                print(f"[DEBUG] robot_status 업데이트: robot_id={robot_id}, state={state_name}({state_code})")
+            except Exception as e:
+                print(f"[ERROR] robot_status 변환 실패: {e}")
         
         self.topic_values[robot_id][topic_name] = value_str
         
@@ -211,6 +233,10 @@ class RosMonitorTab(QWidget):
         table = frame.topic_table
         values = self.topic_values.get(robot_id, {})
         
+        # 디버그 로그
+        if 'robot_status' in values:
+            print(f"[DEBUG] _update_topic_table: robot_id={robot_id}, robot_status={values.get('robot_status')}")
+        
         # 테이블의 각 행에서 토픽 이름을 찾아 값 업데이트
         for row in range(table.rowCount()):
             topic_item = table.item(row, 0)
@@ -220,6 +246,15 @@ class RosMonitorTab(QWidget):
                     value_item = table.item(row, 2)
                     if value_item:
                         value_item.setText(values[topic_name])
+                        
+                        # robot_status는 색상 적용
+                        if topic_name == 'robot_status':
+                            color_key = f'{topic_name}_color'
+                            if color_key in values:
+                                color = QColor(values[color_key])
+                                value_item.setBackground(color)
+                                # 텍스트는 흰색으로
+                                value_item.setForeground(QColor("white"))
     
     def _create_section(self, robot_data):
         """구역 프레임 생성"""
@@ -333,6 +368,7 @@ class RosMonitorTab(QWidget):
                 (f'{prefix}/servo_status', 'Bool', '0'),
                 (f'{prefix}/target_angles', 'Float64MultiArray', '0'),
                 (f'{prefix}/target_coords', 'Float64MultiArray', '0'),
+                (f'{prefix}/robot_status', 'Int8', '0'),
             ]
         else:
             topics = [

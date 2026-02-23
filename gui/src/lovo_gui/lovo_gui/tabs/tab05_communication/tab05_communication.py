@@ -54,17 +54,20 @@ class CommunicationTab(QWidget):
             
             # 로봇팔 도메인 (60, 61)만 RobotArmController 생성
             if robot_domain in [60, 61]:  # 상차(60), 하차(61) 모두 활성화
-                # 모든 컨트롤러를 Domain 70에서 실행 (Domain Bridge 사용)
+                # 모든 컨트롤러를 설정 파일의 server_domain에서 실행
                 if 'main_context' not in self.controller_contexts:
+                    server_domain = self.robot_settings.get_server_domain()
                     context = rclpy.Context()
-                    context.init(domain_id=70)
+                    context.init(domain_id=server_domain)
                     self.controller_contexts['main_context'] = context
+                    print(f"[DEBUG Communication Tab] ROS Context 초기화: domain_id={server_domain} (from config)")
                 else:
                     context = self.controller_contexts['main_context']
                 
                 # RobotArmController 생성 - robot_domain 전달 (토픽 이름 구분용)
                 controller = RobotArmController(robot_name, robot_domain, context=context)
                 self.robot_controllers[robot_id] = controller
+                print(f"[DEBUG Communication Tab] RobotArmController 생성: robot_id={robot_id}, robot_name={robot_name}, robot_domain={robot_domain}")
                 
                 # Signal 연결
                 controller.connection_changed.connect(

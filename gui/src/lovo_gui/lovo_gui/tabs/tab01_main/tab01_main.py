@@ -11,7 +11,11 @@ import cv2
 import glob
 import os
 from datetime import datetime
-from lovo_gui.constants import MAIN_SYSTEM_MAP, MAIN_ORDER_LOG, MAIN_ROBOT_GRID, MAIN_CAMERA_VIEW
+from lovo_gui.constants import (
+    MAIN_SYSTEM_MAP, MAIN_ORDER_LOG, MAIN_ROBOT_GRID, MAIN_CAMERA_VIEW,
+    ROBOT_STATE_NAMES, ROBOT_STATE_DESCRIPTIONS, 
+    ROBOT_STATE_COLORS, ROBOT_STATE_EMOJIS
+)
 
 # 카메라 크롭 설정 (픽셀 단위) - 여기서 조절하세요!
 CROP_TOP = 140     # 위쪽 자르기
@@ -157,7 +161,8 @@ class MainTab(QWidget):
         self.comm_manager = comm_manager  # 통신 매니저 (API Client 접근용)
         self.camera_title = None
         self.camera_view_label = None
-        self.robot_status_labels = {}  # 로봇 상태 라벨들 저장 {robot_id: {'status': label, 'battery': label}}
+        self.robot_status_labels = {}  # 로봇 상태 라벨들 저장 {robot_id: {'status': label, 'battery': label, 'work': label}}
+        self.robot_fsm_states = {}  # 로봇팔 FSM 상태 저장 {robot_id: state_code}
         
         # 로컬 카메라 컨트롤러
         self.local_camera = None
@@ -223,6 +228,65 @@ class MainTab(QWidget):
             padding: 8px;
             border: 1px solid #ccc;
         """)
+    
+    def connect_robot_controllers(self, robot_controllers):
+        """로봇 컨트롤러 연결 (robot_state 시그널 구독)"""
+        print(f"[DEBUG Main Tab] connect_robot_controllers 호출됨")
+        print(f"[DEBUG Main Tab] robot_controllers keys: {list(robot_controllers.keys())}")
+        print(f"[DEBUG Main Tab] robot_status_labels keys: {list(self.robot_status_labels.keys())}")
+        
+        for robot_id, controller in robot_controllers.items():
+            print(f"[DEBUG Main Tab] {robot_id}의 robot_state_updated 시그널 연결 시도")
+            
+            # 람다 대신 functools.partial 사용하여 명확한 바인딩
+            def on_state_update(state, rid=robot_id):
+                print(f"[DEBUG Main Tab] 시그널 수신됨! robot_id={rid}, state={state}")
+                self._on_robot_fsm_state_changed(rid, state)
+            
+            controller.robot_state_updated.connect(on_state_update)
+            print(f"[DEBUG Main Tab] {robot_id} 시그널 연결 완료")
+    
+    def _on_robot_fsm_state_changed(self, robot_id, state_code):
+        """로봇팔 FSM 상태 변경 시 호출"""
+        print(f"[DEBUG Main Tab] _on_robot_fsm_state_changed: robot_id={robot_id}, state_code={state_code}")
+        
+        self.robot_fsm_states[robot_id] = state_code
+        
+        labels = self.robot_status_labels.get(robot_id)
+        if not labels:
+            print(f"[ERROR Main Tab] robot_id={robot_id}에 대한 labels를 찾을 수 없음!")
+            print(f"[ERROR Main Tab] 사용 가능한 keys: {list(self.robot_status_labels.keys())}")
+            return
+            
+        if 'work' not in labels:
+            print(f"[ERROR Main Tab] robot_id={robot_id}의 labels에 'work'가 없음!")
+            print(f"[ERROR Main Tab] labels keys: {list(labels.keys())}")
+            return
+        
+        work_label = labels['work']
+        print(f"[DEBUG Main Tab] work_label 찾음: {work_label}")
+        
+        # 상태 코드를 텍스트로 변환
+        state_name = ROBOT_STATE_NAMES.get(state_code, f"UNKNOWN({state_code})")
+        state_desc = ROBOT_STATE_DESCRIPTIONS.get(state_code, "알 수 없음")
+        emoji = ROBOT_STATE_EMOJIS.get(state_code, "")
+        color = ROBOT_STATE_COLORS.get(state_code, "#999999")
+        
+        new_text = f"{emoji} {state_name} - {state_desc}"
+        print(f"[DEBUG Main Tab] 상태 업데이트 시도: text='{new_text}', color={color}")
+        
+        # 텍스트와 스타일 업데이트
+        work_label.setText(new_text)
+        work_label.setStyleSheet(f"""
+            background-color: {color};
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 8px;
+            border: 1px solid #ccc;
+        """)
+        work_label.update()  # 강제 업데이트
+        print(f"[DEBUG Main Tab] work_label 업데이트 완료")
 
     def is_topview_camera_connected(self):
         """탑뷰 카메라 연결 상태"""
@@ -713,16 +777,30 @@ class MainTab(QWidget):
             grid_layout.addWidget(status_label, row, 1)
             
             # 로봇 하는일
-            work_label = QLabel("업무 대기")
-            work_label.setStyleSheet("""
-                background-color: white;
-                color: black;
-                font-size: 12px;
-                padding: 8px;
-                border: 1px solid #ccc;
-            """)
+            robot_domain = robot.get("domain")
+            # 로봇팔(60, 61)은 FSM 상태로 초기화, AMR은 "업무 대기"
+            if robot_domain in [60, 61]:
+                work_label = QLabel("⏳ 상태 대기중...")
+                work_label.setStyleSheet("""
+                    background-color: #9E9E9E;
+                    color: white;
+                    font-size: 12px;
+                    font-weight: bold;
+                    padding: 8px;
+                    border: 1px solid #ccc;
+                """)
+            else:
+                work_label = QLabel("업무 대기")
+                work_label.setStyleSheet("""
+                    background-color: white;
+                    color: black;
+                    font-size: 12px;
+                    padding: 8px;
+                    border: 1px solid #ccc;
+                """)
             work_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             grid_layout.addWidget(work_label, row, 2)
+            print(f"[DEBUG Main Tab _create_robot_grid] work_label 생성: robot_id={robot_id}, domain={robot_domain}")
 
             # 배터리 잔량
             battery_label = QLabel("-")
@@ -770,6 +848,7 @@ class MainTab(QWidget):
                 'battery': battery_label,
                 'work': work_label
             }
+            print(f"[DEBUG Main Tab] robot_status_labels에 추가됨: robot_id={robot_id}, robot_name={robot_name}")
 
     def _create_camera_view(self):
         """카메라 뷰"""

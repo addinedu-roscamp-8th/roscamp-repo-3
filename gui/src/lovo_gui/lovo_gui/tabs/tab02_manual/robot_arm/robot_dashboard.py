@@ -525,9 +525,10 @@ class RobotDashboardWidget(QWidget):
     def _go_home(self):
         if self.controller:
             try:
-                # Use controller to publish home angles
-                self.controller.publish_angles([0.0] * 6)
-                self.work_log_signal.emit(f"🏠 {self.robot_name} HOME 위치로 이동")
+                # Publish home position to PTP_goal_pose topic
+                home_pose = [6.07, 14.13, 39.84, 0.88, -1.63, -0.12]
+                self.controller.publish_goal_pose(home_pose)
+                self.work_log_signal.emit(f"🏠 {self.robot_name} HOME 위치로 이동: {home_pose}")
             except Exception as e:
                 self.work_log_signal.emit(f"❌ {self.robot_name} HOME 명령 실패: {e}")
         else:

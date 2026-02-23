@@ -149,3 +149,52 @@ STYLE_TABLE = """
         padding: 5px;
     }
 """
+
+# ===== 로봇팔 상태 머신 (FSM) 정의 =====
+# 상태 코드
+ROBOT_STATE_INIT = 0
+ROBOT_STATE_IDLE = 1
+ROBOT_STATE_BUSY = 2
+ROBOT_STATE_SUCCESS = 3
+ROBOT_STATE_ERROR = 4
+ROBOT_STATE_FIRE = 5
+
+# 상태 이름 매핑
+ROBOT_STATE_NAMES = {
+    0: "INIT",
+    1: "IDLE",
+    2: "BUSY",
+    3: "SUCCESS",
+    4: "ERROR",
+    5: "FIRE"
+}
+
+# 상태 설명
+ROBOT_STATE_DESCRIPTIONS = {
+    0: "초기화 및 부팅",
+    1: "명령 대기 중",
+    2: "작업 수행 중",
+    3: "완료 보고 중",
+    4: "일반 시스템 오류",
+    5: "화재 긴급 상태"
+}
+
+# 상태별 색상
+ROBOT_STATE_COLORS = {
+    0: "#9E9E9E",  # INIT - 회색
+    1: "#4CAF50",  # IDLE - 녹색
+    2: "#2196F3",  # BUSY - 파란색
+    3: "#8BC34A",  # SUCCESS - 연두색
+    4: "#F44336",  # ERROR - 빨간색
+    5: "#FF5722"   # FIRE - 주황빨강
+}
+
+# 상태별 이모지
+ROBOT_STATE_EMOJIS = {
+    0: "🔄",  # INIT
+    1: "✅",  # IDLE
+    2: "⚙️",  # BUSY
+    3: "🎉",  # SUCCESS
+    4: "❌",  # ERROR
+    5: "🔥"   # FIRE
+}

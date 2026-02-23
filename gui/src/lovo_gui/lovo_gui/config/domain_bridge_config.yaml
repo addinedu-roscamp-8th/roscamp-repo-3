@@ -75,6 +75,19 @@ topics:
     to_domain: 61
     remap: /order_command
 
+
+  /robot_state:
+    type: std_msgs/msg/Int8
+    from_domain: 60
+    to_domain: 70
+    remap: /robot1/robot_state
+
+  /robot_state:
+    type: std_msgs/msg/Int8
+    from_domain: 61
+    to_domain: 70
+    remap: /robot2/robot_state
+
   /robot1/PTP_capture_image_with_command/compressed:
     type: lovo_interfaces/msg/CaptureImageWithCommand
     from_domain: 70
