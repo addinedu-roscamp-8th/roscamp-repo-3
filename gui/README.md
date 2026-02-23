@@ -122,13 +122,6 @@ ros2 run lovo_gui lovo_gui
 
 시스템 전체 무전 채널(Domain ID)을 59에서 70으로 변경하려면 **서버 PC**에서 다음 파일들을 수정해야 합니다.
 
-### 1. 도메인 브릿지 설정 ( YAML 파일 수정 )
-로봇 구역의 데이터를 서버 구역(70)으로 넘겨주기 위해 모든 브릿지 YAML의 `to_domain`을 수정해야 합니다.
-*   **파일 목록**: 
-    - `serverfinal/mainserver/config/bridge_robotarm/robotarm1.yaml` (및 2번)
-    - `serverfinal/mainserver/config/bridge_pinky/pinky_1.yaml` (및 2, 3번)
-*   **수정 사항**: `to_domain: 59` → `to_domain: 70`
-
 ### 2. GUI 설정 파일 수정
 *   **파일**: `gui/src/lovo_gui/lovo_gui/config/robotname.json`
 *   **수정 사항**: `"server_domain": 59` → `"server_domain": 70`
