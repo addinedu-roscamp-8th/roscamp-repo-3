@@ -194,7 +194,7 @@ class JetCobotPC(Node):
         self.gripper_pub = self.create_publisher(Int32, "/gripper_command", 10)
         self.servo_pub = self.create_publisher(Bool, "/servo_status", 10)
         self.tcp_pose_pub = self.create_publisher(Float64MultiArray, "/PTP_tcp_pose", 10)
-        self.robot_status_pub = self.create_publisher(Int8, "/robot_states", 10 )
+        self.robot_status_pub = self.create_publisher(Int8, "/robot_state", 10)
 
     def _init_subscribers(self):
         """Initialize subscribers"""

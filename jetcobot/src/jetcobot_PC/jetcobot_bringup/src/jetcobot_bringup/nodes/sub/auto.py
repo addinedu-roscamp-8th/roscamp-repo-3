@@ -17,7 +17,7 @@ import cv2
 import os
 from datetime import datetime
 from decimal import Decimal
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, Int32
 from lovo_interfaces.srv import GetSnapshot
 
 
@@ -112,6 +112,10 @@ class PickPlaceHandler:
         self._is_processing = True
         self._saved_place_marker_id = None  # 새로운 시퀀스 시작 시 초기화
         
+        gripper_msg = Int32()
+        gripper_msg.data = 100  # Open gripper at the start of the sequence
+        self.gripper_pub.publish(gripper_msg)
+        
         try:
             for idx, pick_id in enumerate(pick_ids):
                 self.node.get_logger().info(f"\n{'='*60}")
@@ -186,6 +190,10 @@ class PickPlaceHandler:
         self._is_processing = True
         self._saved_place_marker_id = None
 
+        gripper_msg = Int32()
+        gripper_msg.data = 100  # Open gripper at the start of the sequence
+        self.gripper_pub.publish(gripper_msg)
+        
         try:
             for idx, pick_id in enumerate(pick_ids):
                 
