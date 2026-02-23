@@ -10,7 +10,7 @@ This node handles:
 """
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Int32, Bool, Float64MultiArray, Float64
+from std_msgs.msg import Int32, Bool, Float64MultiArray, Float64,Int8
 from lovo_interfaces.msg import CaptureImageWithCommand
 from tf2_ros import Buffer, TransformListener
 from pymoveit2 import MoveIt2
@@ -174,6 +174,7 @@ class JetCobotPC(Node):
         self.gripper_pub = self.create_publisher(Int32, "/gripper_command", 10)
         self.servo_pub = self.create_publisher(Bool, "/servo_status", 10)
         self.tcp_pose_pub = self.create_publisher(Float64MultiArray, "/PTP_tcp_pose", 10)
+        self.robot_status_pub = self.create_publisher(Int8, "/robot_states", 10 )
 
     def _init_subscribers(self):
         """Initialize subscribers"""
