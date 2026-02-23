@@ -13,6 +13,13 @@ class AdvancedTrafficManager(Node):
         self.sub = self.create_subscription(String, '/traffic/request', self.handle_request, 10)
         self.pub = self.create_publisher(String, '/traffic/response', 10)
         
+        # 로봇별 개별 작업 할당 퍼블리셔 
+        self.task_pubs = {
+            'pinky1': self.create_publisher(String, '/pinky1/taskassign', 10),
+            'pinky2': self.create_publisher(String, '/pinky2/taskassign', 10),
+            'pinky3': self.create_publisher(String, '/pinky3/taskassign', 10)
+        }
+        
         # 자원 관리
         self.locked_edges = {}
         self.locked_nodes = {}
@@ -20,12 +27,28 @@ class AdvancedTrafficManager(Node):
         self.charging_slots = {1: "robot3", 2: "robot2", 3: "robot1"}
         self.robot_states = {}
         
-        self.task_queue = deque(['WP4', 'WP8', 'WP6', 'WP4', 'WP8', 'WP6']) 
+        self.task_queue = deque() # DB 기반으로 변경되므로 초기 큐는 비워둠
         self.assigned_tasks = {}      
         self.packing_active = set()   
         self.packing_done = set()     
 
-        self.get_logger().info("🚦 [V10] 교통 관제 센터 가동 (WP3 안전 해제 + 물리적 슬롯 해제 적용)")
+        # DB 설정
+        self.db_config = {
+            'host': 'localhost',
+            'user': 'lovoDB',
+            'password': 'LovoDB1234!',
+            'database': 'factory_system'
+        }
+
+        self.get_logger().info("🚦 [V11] 교통 관제 센터 가동 (DB 연동 작업 할당 모드)")
+
+    def get_db_connection(self):
+        try:
+            import mysql.connector
+            return mysql.connector.connect(**self.db_config)
+        except Exception as e:
+            self.get_logger().error(f"DB 연결 실패: {e}")
+            return None
 
     def get_edge_key(self, wp_a, wp_b):
         wps = sorted([wp_a, wp_b])
@@ -44,8 +67,6 @@ class AdvancedTrafficManager(Node):
                 state_num = int(parts[2])
                 self.robot_states[robot_id] = state_num
                 
-                # [해결 1] State 4 (패킹 구역 진입 완료) 시점에 WP3 등 모든 교차로 락 강제 해제
-                # (State 3에서는 여전히 WP3를 점유하고 있으므로 뒷차가 박지 못함!)
                 if state_num == 4:
                     self.free_all_locks_for_robot(robot_id)
                 
@@ -57,7 +78,6 @@ class AdvancedTrafficManager(Node):
                 
                 self.respond_custom(f"{robot_id}|REPORT_ACK|{state_num}")
 
-            # [해결 2] 로봇이 안전 구역에 도달하여 명시적으로 슬롯을 반납할 때만 처리
             elif action == "RELEASE_SLOT":
                 slot_num = int(parts[2])
                 if self.charging_slots.get(slot_num) == robot_id:
@@ -80,7 +100,7 @@ class AdvancedTrafficManager(Node):
         except Exception as e:
             self.get_logger().error(f"Msg Error: {e}")
 
-    # 로봇이 물고 있는 모든 맵 노드 점유권 일괄 압수 (WP3 반납 문제 해결)
+    # 로롯이 물고 있는 모든 맵 노드 점유권 일괄 압수 (WP3 반납 문제 해결)
     def free_all_locks_for_robot(self, robot_id):
         edges_to_del = [e for e, r in self.locked_edges.items() if r == robot_id]
         nodes_to_del = [n for n, r in self.locked_nodes.items() if r == robot_id]
@@ -95,15 +115,64 @@ class AdvancedTrafficManager(Node):
             if robot_id in q: q.remove(robot_id)
 
     def handle_task_dispatch(self, robot_id):
+        # 이미 할당된 작업이 있으면 재전송
         if robot_id in self.assigned_tasks:
             wp = self.assigned_tasks[robot_id]
             self.respond_custom(f"{robot_id}|DISPATCH|{wp}")
-        else:
-            if not self.task_queue:
-                self.task_queue.extend(['WP4', 'WP8', 'WP6']) 
-            wp = self.task_queue.popleft()
-            self.assigned_tasks[robot_id] = wp
-            self.get_logger().info(f"📋 [작업할당] {robot_id} -> {wp}")
+            return
+
+        conn = self.get_db_connection()
+        if not conn: return
+
+        wp = None
+        try:
+            cursor = conn.cursor(dictionary=True)
+            # 1. 'RECEIVED' 상태인 주문 조회
+            cursor.execute("""
+                SELECT order_id, picking_command 
+                FROM orders 
+                WHERE status = 'RECEIVED' 
+                ORDER BY ordered_at ASC 
+                LIMIT 1
+                FOR UPDATE
+            """)
+            row = cursor.fetchone()
+
+            if row:
+                order_id = row['order_id']
+                cmd_val = row['picking_command']
+                
+                # 2. X값에 따른 WP 매핑 (1->WP4, 2->WP8, 3->WP6)
+                x_type = int(cmd_val)
+                mapping = {1: 'WP4', 2: 'WP8', 3: 'WP6'}
+                wp = mapping.get(x_type, 'WP4') # 기본값 WP4
+
+                # 3. 상태 업데이트 (MAKING)
+                cursor.execute("UPDATE orders SET status = 'MAKING' WHERE order_id = %s", (order_id,))
+                conn.commit()
+                
+                self.assigned_tasks[robot_id] = wp
+                self.get_logger().info(f"📋 [DB 작업할당] {robot_id} -> {wp} (주문: {order_id}, Command: {cmd_val})")
+                
+                # [추가] 별도의 /taskassign 토픽으로 커맨드 스트링 전송
+                if robot_id in self.task_pubs:
+                    t_msg = String()
+                    t_msg.data = str(cmd_val)
+                    self.task_pubs[robot_id].publish(t_msg)
+                    self.get_logger().info(f"📲 {robot_id}/taskassign -> {t_msg.data}")
+            else:
+                conn.commit()
+                # 대기 중인 주문이 없으면 기본 장소로 보내거나 대기
+                self.get_logger().info(f"⏳ {robot_id}: 할당할 주문이 없습니다.")
+                return
+
+        except Exception as e:
+            if conn: conn.rollback()
+            self.get_logger().error(f"작업 할당 DB 에러: {e}")
+        finally:
+            if conn: conn.close()
+
+        if wp:
             self.respond_custom(f"{robot_id}|DISPATCH|{wp}")
 
     def handle_packing_process(self, robot_id):
