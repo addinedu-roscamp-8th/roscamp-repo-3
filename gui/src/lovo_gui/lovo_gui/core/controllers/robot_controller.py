@@ -41,6 +41,7 @@ class RobotArmController(Node, QObject):
         self.last_encoder_time = time.time()
         self.connection_timeout = 1.0
         self.current_robot_state = 0  # 로봇 상태 (Int8)
+        self._is_shutting_down = False  # 종료 중 플래그
         
         # Initialize publishers/subscribers centrally
         self._init_topics(robot_id)
@@ -57,20 +58,32 @@ class RobotArmController(Node, QObject):
     
     def joint_states_callback(self, msg):
         """각도 데이터 수신"""
-        if len(msg.position) == 6:
-            self.last_encoder_time = time.time()
-            # joint_states.position is typically in radians; convert to degrees for GUI
-            try:
-                from math import degrees
-                angles_deg = [degrees(p) for p in msg.position]
-            except Exception:
-                angles_deg = list(msg.position)
+        if self._is_shutting_down:
+            return
+        
+        try:
+            if len(msg.position) == 6:
+                self.last_encoder_time = time.time()
+                # joint_states.position is typically in radians; convert to degrees for GUI
+                try:
+                    from math import degrees
+                    angles_deg = [degrees(p) for p in msg.position]
+                except Exception:
+                    angles_deg = list(msg.position)
 
-            self.current_angles = angles_deg
-            self.angles_updated.emit(self.current_angles)
+                self.current_angles = angles_deg
+                self.angles_updated.emit(self.current_angles)
+        except RuntimeError:
+            # Qt 객체가 이미 삭제됨
+            self._is_shutting_down = True
+        except Exception:
+            pass
 
     def current_coords_callback(self, msg):
         """Float64MultiArray로 오는 현재 좌표 수신 (Actual 필드 업데이트용)"""
+        if self._is_shutting_down:
+            return
+        
         try:
             if hasattr(msg, 'data') and len(msg.data) == 6:
                 self.last_encoder_time = time.time()
@@ -79,30 +92,47 @@ class RobotArmController(Node, QObject):
                 self.current_coords = vals
                 # emit coords update for GUI without verbose logging
                 self.coords_updated.emit(self.current_coords)
+        except RuntimeError:
+            # Qt 객체가 이미 삭제됨
+            self._is_shutting_down = True
         except Exception:
             pass
 
     def robot_state_callback(self, msg):
         """로봇 상태 수신 (Int8)"""
+        if self._is_shutting_down:
+            return
+        
         try:
             self.current_robot_state = int(msg.data)
-            self.get_logger().info(f"[DEBUG RobotController] robot_state 수신: {self.current_robot_state} (Domain: {self.robot_domain}, Name: {self.robot_name})")
             self.robot_state_updated.emit(self.current_robot_state)
-            self.get_logger().info(f"[DEBUG RobotController] robot_state_updated 시그널 emit 완료")
+        except RuntimeError:
+            # Qt 객체가 이미 삭제됨
+            self._is_shutting_down = True
         except Exception as e:
-            self.get_logger().error(f"Error in robot_state_callback: {e}")
+            if not self._is_shutting_down:
+                self.get_logger().error(f"Error in robot_state_callback: {e}")
 
     # Note: callbacks for incoming Float64MultiArray/pose/coords were removed
     # because the corresponding subscriptions/publishers are no longer used.
     
     def check_connection(self):
         """로봇 연결 상태 체크"""
-        current_time = time.time()
-        is_connected = (current_time - self.last_encoder_time) <= self.connection_timeout
+        if self._is_shutting_down:
+            return
         
-        if is_connected != self.robot_connected:
-            self.robot_connected = is_connected
-            self.connection_changed.emit(is_connected)
+        try:
+            current_time = time.time()
+            is_connected = (current_time - self.last_encoder_time) <= self.connection_timeout
+            
+            if is_connected != self.robot_connected:
+                self.robot_connected = is_connected
+                self.connection_changed.emit(is_connected)
+        except RuntimeError:
+            # Qt 객체가 이미 삭제됨
+            self._is_shutting_down = True
+        except Exception:
+            pass
     
     # 제어 명령
     def publish_angles(self, angles):

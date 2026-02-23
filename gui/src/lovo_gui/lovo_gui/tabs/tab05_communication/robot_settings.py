@@ -53,6 +53,11 @@ class RobotSettings:
         """서버 도메인 반환 (모든 탭에서 사용 가능)"""
         return self.config.get("server_domain", 70)
     
+    def set_server_domain(self, domain_id):
+        """서버 도메인 설정 (UI에서 사용)"""
+        self.config["server_domain"] = domain_id
+        self.save()
+    
     def update_robot_name(self, index, new_name):
         """로봇 이름 업데이트 (Communication 탭에서만 사용)"""
         if index < len(self.config.get("robots", [])):

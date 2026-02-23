@@ -214,9 +214,8 @@ class RosMonitorTab(QWidget):
                 value_str = f"{emoji} {state_name} - {state_desc}"
                 # 색상 정보도 별도 저장
                 self.topic_values[robot_id][f'{topic_name}_color'] = ROBOT_STATE_COLORS.get(state_code, "#999999")
-                print(f"[DEBUG] robot_status 업데이트: robot_id={robot_id}, state={state_name}({state_code})")
-            except Exception as e:
-                print(f"[ERROR] robot_status 변환 실패: {e}")
+            except Exception:
+                pass
         
         self.topic_values[robot_id][topic_name] = value_str
         
@@ -232,10 +231,6 @@ class RosMonitorTab(QWidget):
         
         table = frame.topic_table
         values = self.topic_values.get(robot_id, {})
-        
-        # 디버그 로그
-        if 'robot_status' in values:
-            print(f"[DEBUG] _update_topic_table: robot_id={robot_id}, robot_status={values.get('robot_status')}")
         
         # 테이블의 각 행에서 토픽 이름을 찾아 값 업데이트
         for row in range(table.rowCount()):

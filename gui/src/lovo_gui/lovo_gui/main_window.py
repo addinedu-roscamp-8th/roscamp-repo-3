@@ -4,7 +4,7 @@ Lovo 제어 시스템 메인 윈도우
 import sys
 from PyQt6.QtWidgets import (
     QMainWindow, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QTabWidget
+    QPushButton, QTabWidget, QLabel, QSpinBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent, QScreen
@@ -134,6 +134,85 @@ class MyMainWindow(QMainWindow):
         
         return sidebar
     
+    def _create_domain_widget(self):
+        """탭 바 코너용 도메인 ID 위젯 생성"""
+        domain_widget = QWidget()
+        domain_widget.setStyleSheet(f"background-color: {COLOR_DARK_BG};")
+        
+        layout = QHBoxLayout(domain_widget)
+        layout.setContentsMargins(20, 5, 10, 5)
+        layout.setSpacing(8)
+        
+        # 도메인 ID 라벨
+        domain_label = QLabel("🌐 Domain:")
+        domain_label.setStyleSheet("color: white; font-size: 12px; font-weight: bold;")
+        layout.addWidget(domain_label)
+        
+        # 도메인 ID 입력 (SpinBox)
+        self.domain_spinbox = QSpinBox()
+        self.domain_spinbox.setRange(0, 101)
+        self.domain_spinbox.setValue(self.robot_settings.get_server_domain())
+        self.domain_spinbox.setFixedWidth(70)
+        self.domain_spinbox.setFixedHeight(30)
+        self.domain_spinbox.setStyleSheet("""
+            QSpinBox {
+                background-color: #2d2d2d;
+                color: white;
+                border: 2px solid #555;
+                border-radius: 3px;
+                padding: 3px;
+                font-size: 12px;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                background-color: #444;
+                border: 1px solid #666;
+            }
+        """)
+        layout.addWidget(self.domain_spinbox)
+        
+        # 적용 버튼
+        btn_apply = QPushButton("적용")
+        btn_apply.setFixedSize(60, 30)
+        btn_apply.setStyleSheet("""
+            QPushButton {
+                background-color: #1976D2;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1565C0;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+        """)
+        btn_apply.clicked.connect(self._apply_domain_id)
+        layout.addWidget(btn_apply)
+        
+        return domain_widget
+    
+    def _apply_domain_id(self):
+        """도메인 ID 적용"""
+        new_domain = self.domain_spinbox.value()
+        current_domain = self.robot_settings.get_server_domain()
+        
+        if new_domain == current_domain:
+            print(f"[UI] 도메인 ID가 동일합니다: {new_domain}")
+            return
+        
+        # 설정 파일에 저장
+        self.robot_settings.set_server_domain(new_domain)
+        
+        print(f"[UI] 도메인 ID 변경: {current_domain} → {new_domain}")
+        print(f"[UI] ⚠️ Communication 탭에서 재연결이 필요합니다!")
+        
+        # 로그 탭에 메시지 추가 (있다면)
+        if hasattr(self, 'log_tab'):
+            self.log_tab.add_log(f"[시스템] 도메인 ID 변경: {current_domain} → {new_domain} (재연결 필요)")
+    
     def _create_tabs(self):
         """탭 위젯 생성"""
         tabs = QTabWidget()
@@ -141,6 +220,10 @@ class MyMainWindow(QMainWindow):
         tabs.setStyleSheet(
             f"QTabBar::tab {{ min-height: {TAB_HEIGHT}px; min-width: {TAB_WIDTH}px; font-size: 16px; }}"
         )
+        
+        # 탭 바 우측에 도메인 ID 위젯 추가
+        domain_widget = self._create_domain_widget()
+        tabs.setCornerWidget(domain_widget, Qt.Corner.BottomRightCorner)
         
         # Main 탭
         self.main_tab = MainTab(self.robot_settings, self.comm_manager)
@@ -179,6 +262,12 @@ class MyMainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent):
         """윈도우 종료 시 데이터 저장"""
         try:
+            # 로봇 컨트롤러 종료 플래그 설정 (race condition 방지)
+            if hasattr(self, 'communication_tab') and hasattr(self.communication_tab, 'robot_controllers'):
+                for robot_id, controller in self.communication_tab.robot_controllers.items():
+                    if hasattr(controller, '_is_shutting_down'):
+                        controller._is_shutting_down = True
+            
             # Manual 탭의 모든 로봇팔 대시보드에서 메모리 저장
             if hasattr(self, 'manual_tab') and hasattr(self.manual_tab, 'dashboard_widgets'):
                 for robot_id, dashboard in self.manual_tab.dashboard_widgets.items():
