@@ -445,79 +445,6 @@ class MainTab(QWidget):
         # 우하단: 카메라 뷰
         self._create_camera_view()
 
-    def _create_server_connection_bar(self, layout):
-        """서버 연결 바 (Tab 01 상단)"""
-        conn_widget = QWidget()
-        conn_layout = QHBoxLayout(conn_widget)
-        conn_layout.setContentsMargins(0, 0, 0, 5)
-        
-        # IP 입력
-        self.server_ip_input = QLineEdit("192.168.0.70")
-        self.server_ip_input.setPlaceholderText("Server IP")
-        self.server_ip_input.setFixedWidth(120)
-        self.server_ip_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #333;
-                color: #ddd;
-                border: 1px solid #555;
-                padding: 5px;
-                border-radius: 4px;
-            }
-        """)
-        
-        # 연결 버튼
-        self.btn_connect_server = QPushButton("Connect Server")
-        self.btn_connect_server.setFixedWidth(120)
-        self.btn_connect_server.setStyleSheet("""
-            QPushButton {
-                background-color: #007acc;
-                color: white;
-                font-weight: bold;
-                padding: 5px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #005f9e;
-            }
-        """)
-        
-        # 상태 라벨
-        self.lbl_server_status = QLabel("Server: Offline")
-        self.lbl_server_status.setStyleSheet("color: #ff4444; font-weight: bold; margin-left: 10px;")
-        
-        # 버튼 연결
-        self.btn_connect_server.clicked.connect(self._on_click_connect_server)
-        
-        conn_layout.addWidget(QLabel("Server IP:"))
-        conn_layout.addWidget(self.server_ip_input)
-        conn_layout.addWidget(self.btn_connect_server)
-        conn_layout.addWidget(self.lbl_server_status)
-        conn_layout.addStretch()
-        
-        # 메인 레이아웃에 추가 (시스템 맵 위에 추가하려면 시스템 맵 레이아웃이 아니라 전체 레이아웃이어야 함)
-        # 하지만 현재 구조상 시스템 맵 내부 레이아웃을 사용하고 있음. 
-        # _setup_ui 구조를 보면 개별 create 함수들이 있고, 그 안에서 setGeometry로 배치함.
-        # 따라서 이 함수는 호출만 하고, 실제 배치는 _setup_ui에서 해야 함. 
-        # 여기서는 위젯을 멤버변수로 저장해두고 _setup_ui에서 배치하는 방식이 아니라, 
-        # 기존 layout(시스템 맵 내부)에 추가하는 방식인데, 이러면 시스템 맵 안에 들어감.
-        # 사용자가 원하는 위치는 "Tab 01" 전체의 상단일 가능성이 높음.
-        # 하지만 Tab 01은 현재 절대 좌표(setGeometry)를 사용하고 있음.
-        
-        # 절대 좌표 배치를 유지하면서 상단 바를 추가하려면, 
-        # 기존 위젯들의 Y 좌표를 밀거나, 상단에 오버레이하거나, 별도 영역을 잡아야 함.
-        # 가장 쉬운 방법은 시스템 맵(좌상단) 영역의  상단에 추가하는 것임.
-        # 현재 layout 인자는 시스템 맵의 QVBoxLayout임.
-        layout.insertWidget(0, conn_widget) # 맨 위에 추가
-
-    def _on_click_connect_server(self):
-        """서버 연결 버튼 클릭 핸들러"""
-        ip = self.server_ip_input.text()
-        self.comm_manager.check_connection(ip, self.lbl_server_status, "서버")
-        # 상태 라벨 텍스트/색상은 check_connection 내부에서 _update_status 호출로 변경됨
-        # 하지만 lbl_server_status는 Tab01에 있고, check_connection은 
-        # Tab05 등에서 넘겨준 status_label을 갱신함. 
-        # 여기서 self.lbl_server_status를 넘겨주면 됨.
-
     def _create_section_title(self, text: str):
         """메인 섹션 공통 타이틀 라벨"""
         title = QLabel(text)
@@ -541,6 +468,10 @@ class MainTab(QWidget):
         
         layout = QVBoxLayout(system_map)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        title = self._create_section_title("탑뷰 영상 (실시간)")
+        layout.addWidget(title)
         
         # 카메라 영상 표시용 라벨
         self.system_map_cam_label = ZoomableCameraLabel("탑뷰카메라 연결 버튼을 눌러 시작하세요")
