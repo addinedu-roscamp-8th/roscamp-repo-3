@@ -150,8 +150,8 @@ ros2 run jetcobot_bringup jetcobot_pc_node.py
 
 ## ⚙️ 설정 파일
 
-### pick_poses.yaml
-위치: `jetcobot_bringup/config/pick_poses.yaml`
+### picking_poses.yaml
+위치: `jetcobot_bringup/config/picking_poses.yaml`
 
 로봇의 pick/place 위치 정의:
 - `poses`: 각 위치의 좌표 (xyz_cm, rpy_deg) 및 offset 정의
@@ -215,7 +215,7 @@ TF lookup failed: frame 'gripper_tcp' does not exist
 → 카메라 서비스 (`/capture_image`)가 실행 중인지 확인
 
 ### ArUco 마커 감지 실패
-→ 조명 확인, 마커 크기 설정 확인 (pick_poses.yaml의 marker_size_m)
+→ 조명 확인, 마커 크기 설정 확인 (picking_poses.yaml의 marker_size_m)
 
 ### MoveIt 충돌
 ```

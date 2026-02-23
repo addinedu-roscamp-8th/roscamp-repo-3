@@ -44,7 +44,7 @@ class JetCobotPC(Node):
         # ====== Load Parameters ======
         self._load_parameters()
         self._load_camera_calibration()
-        self._load_pose_config()
+        self._load_pose_configs()
         
         # ====== Initialize Components ======
         self._init_tf()
@@ -70,18 +70,25 @@ class JetCobotPC(Node):
         self.declare_parameter("tcp_frame", "gripper_tcp")
         self.declare_parameter("pose_publish_rate", 10.0)
         self.declare_parameter("capture_save_dir", os.path.expanduser("~/captured_images"))
-        default_pick_poses_yaml = os.path.join(
+        default_picking_poses_yaml = os.path.join(
             get_package_share_directory("jetcobot_bringup"),
             "config",
-            "pick_poses.yaml",
+            "picking_poses.yaml",
         )
-        self.declare_parameter("pick_poses_yaml", default_pick_poses_yaml)
+        default_packing_poses_yaml = os.path.join(
+            get_package_share_directory("jetcobot_bringup"),
+            "config",
+            "packing_poses.yaml",
+        )
+        self.declare_parameter("picking_poses_yaml", default_picking_poses_yaml)
+        self.declare_parameter("packing_poses_yaml", default_packing_poses_yaml)
         
         self.base_frame = self.get_parameter("base_frame").value
         self.tcp_frame = self.get_parameter("tcp_frame").value
         self.pose_rate = self.get_parameter("pose_publish_rate").value
         self.capture_save_dir = self.get_parameter("capture_save_dir").value
-        self.pick_poses_yaml = self.get_parameter("pick_poses_yaml").value
+        self.picking_poses_yaml = self.get_parameter("picking_poses_yaml").value
+        self.packing_poses_yaml = self.get_parameter("packing_poses_yaml").value
 
     def _load_camera_calibration(self):
         """Load camera calibration from parameters"""
@@ -123,25 +130,35 @@ class JetCobotPC(Node):
         
         self.get_logger().info(f"📷 Camera calibration loaded: fx={fx:.2f}, fy={fy:.2f}")
 
-    def _load_pose_config(self):
-        """Load pose configuration from YAML file"""
-        if not self.pick_poses_yaml:
-            self.get_logger().warn("pick_poses_yaml parameter is empty")
-            self.pose_config = None
-            return
+    def _load_pose_configs(self):
+        """Load picking and packing pose configurations from YAML files"""
+        self.picking_pose_config = self._load_pose_config_file(
+            self.picking_poses_yaml,
+            "picking_poses_yaml",
+        )
+        self.packing_pose_config = self._load_pose_config_file(
+            self.packing_poses_yaml,
+            "packing_poses_yaml",
+        )
 
-        if not os.path.exists(self.pick_poses_yaml):
-            self.get_logger().warn(f"pick_poses_yaml not found: {self.pick_poses_yaml}")
-            self.pose_config = None
-            return
+    def _load_pose_config_file(self, yaml_path: str, label: str):
+        """Load pose configuration from a YAML file"""
+        if not yaml_path:
+            self.get_logger().warn(f"{label} parameter is empty")
+            return None
+
+        if not os.path.exists(yaml_path):
+            self.get_logger().warn(f"{label} not found: {yaml_path}")
+            return None
 
         try:
-            with open(self.pick_poses_yaml, "r", encoding="utf-8") as f:
-                self.pose_config = yaml.safe_load(f)
-            self.get_logger().info(f"✅ Loaded poses YAML: {self.pick_poses_yaml}")
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                pose_config = yaml.safe_load(f)
+            self.get_logger().info(f"✅ Loaded poses YAML: {yaml_path}")
+            return pose_config
         except Exception as e:
-            self.get_logger().error(f"Failed to load pick_poses_yaml: {e}")
-            self.pose_config = None
+            self.get_logger().error(f"Failed to load {label}: {e}")
+            return None
 
     def _init_tf(self):
         """Initialize TF listener"""

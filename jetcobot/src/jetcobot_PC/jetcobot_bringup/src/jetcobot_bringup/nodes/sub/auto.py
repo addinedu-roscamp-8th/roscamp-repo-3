@@ -74,17 +74,40 @@ class PickPlaceHandler:
             return
         
         # ⚡ Load pose data from YAML config before starting thread
-        pick_place_datamap = self._load_pick_place_data_from_yaml()
-        
-        # Start processing in thread with pose data
-        thread = threading.Thread(
-            target=self._execute_sequence,
-            args=(place_id, pick_ids, pick_place_datamap),
-            daemon=True
+        picking_poses_datamap = self._load_picking_data_from_yaml(
+            self.node.picking_pose_config,
+            "picking_poses_yaml",
         )
+        packing_poses_datamap = self._load_packing_data_from_yaml(
+            self.node.packing_pose_config,
+            "packing_poses_yaml",
+        )
+
+        if place_id == 0 and not packing_poses_datamap:
+            self.node.get_logger().warn("⚠️ Packing pose data map is empty; skipping sequence")
+            return
+        if place_id != 0 and not picking_poses_datamap:
+            self.node.get_logger().warn("⚠️ Picking pose data map is empty; skipping sequence")
+            return
+
+        if place_id == 0:
+            # Start packing sequence when place_id is 0
+            thread = threading.Thread(
+                target=self._execute_packing_sequence,
+                args=(place_id, pick_ids, packing_poses_datamap),
+                daemon=True
+            )
+        else:
+            # Start picking sequence for non-zero place_id
+            thread = threading.Thread(
+                target=self._execute_picking_sequence,
+                args=(place_id, pick_ids, picking_poses_datamap),
+                daemon=True
+            )
+
         thread.start()
     
-    def _execute_sequence(self, place_id: int, pick_ids: list, pick_place_datamap: dict):
+    def _execute_picking_sequence(self, place_id: int, pick_ids: list, picking_poses_datamap: dict):
         """Execute pick & place sequence"""
         self._is_processing = True
         self._saved_place_marker_id = None  # 새로운 시퀀스 시작 시 초기화
@@ -100,13 +123,18 @@ class PickPlaceHandler:
                 
                 time.sleep(self.before_move_delay)  # Delay before moving to pick position
                 # 1. Move to pick position
-                if not self._move_to_position(pick_id, pick_place_datamap):
+                if not self._move_to_position(pick_id, picking_poses_datamap):
                     self.node.get_logger().error(f"❌ Failed to move to pick position")
                     break
                 
                 
                 # 2. Capture image, detect ArUco, execute pick
-                if not self._capture_and_execute_aruco(pick_id, gripper_command=0, pick_place_datamap=pick_place_datamap):
+                if not self._capture_and_execute_aruco(
+                    pick_id,
+                    gripper_command=0,
+                    pose_datamap=picking_poses_datamap,
+                    check_marker_id=pick_id,
+                ):
                     self.node.get_logger().error(f"❌ Failed to execute pick")
                     break
                 
@@ -115,7 +143,7 @@ class PickPlaceHandler:
                 
                 time.sleep(self.before_move_delay)  # Delay before moving to place position
                 # 3. Move to place position
-                if not self._move_to_position(place_id, pick_place_datamap):
+                if not self._move_to_position(place_id, picking_poses_datamap):
                     self.node.get_logger().error(f"❌ Failed to move to place position")
                     break
                 
@@ -123,13 +151,13 @@ class PickPlaceHandler:
                 if idx == 0:
                     # 첫 번째 사이클: ArUco detection 수행하고 marker ID 저장
                     self.node.get_logger().info(f"🎯 First cycle: detecting ArUco and saving marker ID")
-                    if not self._capture_and_execute_aruco(place_id, gripper_command=100, pick_place_datamap=pick_place_datamap, save_marker_id=True, pick_id=pick_id):
+                    if not self._capture_and_execute_aruco(place_id, gripper_command=100, pose_datamap=picking_poses_datamap, save_marker_id=True, pick_id=pick_id):
                         self.node.get_logger().error(f"❌ Failed to execute place")
                         break
                 else:
                     # 이후 사이클: 저장된 marker ID와 같은 마커를 감지하여 새로 target 계산
                     self.node.get_logger().info(f"♻️ Cycle {idx+1}: detecting same marker ID {self._saved_place_marker_id}")
-                    if not self._capture_and_execute_aruco(place_id, gripper_command=60, pick_place_datamap=pick_place_datamap, check_marker_id=self._saved_place_marker_id, pick_id=pick_id):
+                    if not self._capture_and_execute_aruco(place_id, gripper_command=60, pose_datamap=picking_poses_datamap, check_marker_id=self._saved_place_marker_id, pick_id=pick_id):
                         self.node.get_logger().error(f"❌ Failed to execute place")
                         break
                 
@@ -138,7 +166,7 @@ class PickPlaceHandler:
                 # All tasks completed - move to standby position (pose 8)
                 self.node.get_logger().info(f"\n🏁 Moving to standby position...")
                 time.sleep(self.before_move_delay + 1.0)  # Delay before moving to standby
-                if not self._move_to_position(8, pick_place_datamap):
+                if not self._move_to_position(8, picking_poses_datamap):
                     self.node.get_logger().warn(f"⚠️ Failed to move to standby position")
             
             self.node.get_logger().info(f"\n🎉 All tasks completed!")
@@ -147,10 +175,92 @@ class PickPlaceHandler:
             self.node.get_logger().error(f"❌ Error: {e}")
         finally:
             self._is_processing = False
+
+    def _execute_packing_sequence(self, place_id: int, pick_ids: list, packing_poses_datamap: dict):
+        """Execute packing sequence when place_id is 0"""
+        self._is_processing = True
+        self._saved_place_marker_id = None
+
+        try:
+            for idx, pick_id in enumerate(pick_ids):
+                
+                # === Packing Phase ===
+                self.node.get_logger().info(f"\n{'='*60}")
+                self.node.get_logger().info(f"📦 PACKING Pick Phase {idx+1}/{len(pick_ids)}: ID {pick_id}")
+                self.node.get_logger().info(f"{'='*60}")
+
+                time.sleep(self.before_move_delay)
+
+                if not self._move_to_position("picking_poses", packing_poses_datamap):
+                    self.node.get_logger().error("❌ Failed to move to packing picking pose")
+                    break
+
+                if not self._capture_and_execute_aruco(
+                    "picking_poses",
+                    gripper_command=0,
+                    pose_datamap=packing_poses_datamap,
+                    check_marker_id=pick_id,
+                    pick_id=pick_id,
+                ):
+                    self.node.get_logger().error("❌ Failed to execute packing pick")
+                    break
+
+                time.sleep(self.before_move_delay)
+
+                if not self._move_to_position("picking_end_pose", packing_poses_datamap):
+                    self.node.get_logger().warn("⚠️ Failed to move to packing picking end pose")
+
+                self.node.get_logger().info(f"✅ Completed packing pick phase for ID {pick_id}")
+
+                # === Place Phase ===
+                self.node.get_logger().info(f"\n📍 PACKING Place Phase {idx+1}/{len(pick_ids)}: ID {pick_id}")
+
+                time.sleep(self.before_move_delay)  # Delay before moving to place position
+                if not self._move_to_position("packing_poses", packing_poses_datamap):
+                    self.node.get_logger().error("❌ Failed to move to packing place pose")
+                    break
+
+                if idx == 0:
+                    self.node.get_logger().info("🎯 First cycle: detecting ArUco and saving marker ID")
+                    if not self._capture_and_execute_aruco(
+                        "packing_poses",
+                        gripper_command=100,
+                        pose_datamap=packing_poses_datamap,
+                        save_marker_id=True,
+                        pick_id=pick_id,
+                    ):
+                        self.node.get_logger().error("❌ Failed to execute packing place")
+                        break
+                else:
+                    self.node.get_logger().info(
+                        f"♻️ Cycle {idx+1}: detecting same marker ID {self._saved_place_marker_id}"
+                    )
+                    if not self._capture_and_execute_aruco(
+                        "packing_poses",
+                        gripper_command=60,
+                        pose_datamap=packing_poses_datamap,
+                        check_marker_id=self._saved_place_marker_id,
+                        pick_id=pick_id,
+                    ):
+                        self.node.get_logger().error("❌ Failed to execute packing place")
+                        break
+                
+                time.sleep(self.before_move_delay)
+                
+                if not self._move_to_position("packing_end_pose", packing_poses_datamap):
+                    self.node.get_logger().warn("⚠️ Failed to move to packing end pose")
+
+                self.node.get_logger().info(f"✅ Completed packing place phase for ID {pick_id}")
+
+
+        except Exception as e:
+            self.node.get_logger().error(f"❌ Error in packing sequence: {e}")
+        finally:
+            self._is_processing = False
     
     # ==================== Move Function ====================
     
-    def _load_pick_place_data_from_yaml(self) -> dict:
+    def _load_picking_data_from_yaml(self, pose_config: dict, label: str) -> dict:
         """
         Load all pose data from YAML config (detection poses + offset/lift metadata)
         
@@ -159,11 +269,11 @@ class PickPlaceHandler:
         """
         pick_place_datamap = {}
         
-        if not self.node.pose_config or 'poses' not in self.node.pose_config:
-            self.node.get_logger().warn("⚠️ Could not load pose data: pose_config not available")
+        if not pose_config or 'poses' not in pose_config:
+            self.node.get_logger().warn(f"⚠️ Could not load pose data: {label} not available")
             return pick_place_datamap
         
-        poses = self.node.pose_config['poses']
+        poses = pose_config['poses']
         
         for pose_id, pose_data in poses.items():
             xyz_cm = pose_data.get('xyz_cm', [0, 0, 0])
@@ -184,14 +294,79 @@ class PickPlaceHandler:
         
         self.node.get_logger().info(f"📋 Loaded pose data for {len(pick_place_datamap)} poses")
         return pick_place_datamap
+
+    def _load_packing_data_from_yaml(self, pose_config: dict, label: str) -> dict:
+        """
+        Load packing pose data from YAML config.
+
+        Expected keys in poses:
+            - picking_poses
+            - picking_end_pose
+            - packing_poses
+            - packing_end_pose
+
+        Returns:
+            dict: {
+                pose_key: {
+                    'xyz_cm': [...],
+                    'rpy_deg': [...],
+                    'offset_cm': [...],
+                    'z_lift_cm': ...,
+                    'sub_offsets': {...},
+                    'note': str,
+                },
+                ...
+            }
+        """
+        packing_datamap = {}
+
+        if not pose_config or 'poses' not in pose_config:
+            self.node.get_logger().warn(f"⚠️ Could not load pose data: {label} not available")
+            return packing_datamap
+
+        poses = pose_config['poses']
+        required_pose_keys = [
+            'picking_poses',
+            'picking_end_pose',
+            'packing_poses',
+            'packing_end_pose',
+        ]
+
+        missing_keys = [key for key in required_pose_keys if key not in poses]
+        if missing_keys:
+            self.node.get_logger().warn(
+                f"⚠️ Missing packing pose keys in {label}: {missing_keys}"
+            )
+
+        for pose_key, pose_data in poses.items():
+            xyz_cm = pose_data.get('xyz_cm', [0, 0, 0])
+            rpy_deg = pose_data.get('rpy_deg', [0, 0, 0])
+            offset_cm = pose_data.get('offset_cm', [0, 0, 0])
+            z_lift_cm = pose_data.get('z_lift_cm', 0.0)
+            offsets = pose_data.get('offsets', {})
+            note = pose_data.get('note', '')
+
+            packing_datamap[pose_key] = {
+                'xyz_cm': xyz_cm,
+                'rpy_deg': rpy_deg,
+                'offset_cm': offset_cm,
+                'z_lift_cm': z_lift_cm,
+                'sub_offsets': offsets,
+                'note': note,
+            }
+
+        self.node.get_logger().info(
+            f"📋 Loaded packing pose data for {len(packing_datamap)} poses"
+        )
+        return packing_datamap
     
-    def _move_to_position(self, pose_id: int, pick_place_datamap: dict) -> bool:
+    def _move_to_position(self, pose_id: int | str, pose_datamap: dict) -> bool:
         """
         Move robot to pose specified by pose_id
         
         Args:
-            pose_id: ID of pose to move to
-            pick_place_datamap: Dict containing pose data (xyz, rpy)
+            pose_id: ID or key of pose to move to
+            pose_datamap: Dict containing pose data (xyz, rpy)
         
         Returns:
             bool: True if move succeeded, False otherwise
@@ -201,11 +376,11 @@ class PickPlaceHandler:
         pose_key = str(pose_id)
         
         # Get pose data from map
-        if pose_key not in pick_place_datamap:
-            self.node.get_logger().error(f"❌ Pose ID {pose_id} not found in data")
+        if pose_key not in pose_datamap:
+            self.node.get_logger().error(f"❌ Pose key {pose_id} not found in data")
             return False
         
-        pose_data = pick_place_datamap[pose_key]
+        pose_data = pose_datamap[pose_key]
         
         # Extract position and orientation
         xyz = pose_data.get('xyz_cm', [0, 0, 0])
@@ -288,14 +463,14 @@ class PickPlaceHandler:
     
     # ==================== ArUco Detection & Execution ====================
     
-    def _capture_and_execute_aruco(self, pose_id: int, gripper_command: int, pick_place_datamap: dict, save_marker_id: bool = False, check_marker_id: int = None, pick_id: int = None) -> bool:
+    def _capture_and_execute_aruco(self, pose_id: int | str, gripper_command: int, pose_datamap: dict, save_marker_id: bool = False, check_marker_id: int = None, pick_id: int = None) -> bool:
         """
         Capture image, detect ArUco marker, and execute pick/place
         
         Args:
-            pose_id: ID of pose for reference
+            pose_id: ID or key of pose for reference
             gripper_command: 0 for close (pick), 100 for open (place)
-            pick_place_datamap: Pose data map containing offset information
+            pose_datamap: Pose data map containing offset information
             save_marker_id: If True, save marker ID for reuse (first place cycle)
             check_marker_id: If set, verify detected marker ID matches this value
             pick_id: Pick ID for place operations (used to get sub_offsets if available)
@@ -351,7 +526,7 @@ class PickPlaceHandler:
         
         # Get offset from pose data
         pose_key = str(pose_id)
-        pose_data = pick_place_datamap.get(pose_key, {})
+        pose_data = pose_datamap.get(pose_key, {})
         
         # Check if this is a place operation with sub_offsets for specific pick_id
         if pick_id is not None:

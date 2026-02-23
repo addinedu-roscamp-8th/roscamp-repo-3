@@ -11,7 +11,12 @@ import networkx as nx
 import time
 import numpy as np
 import sys
-from pinkylib import IR
+
+try:
+    from pinkylib import IR
+except ImportError as e:
+    print(f"🚨 IR 센서 모듈 임포트 실패: {e}")
+    sys.exit(1)
 
 class PinkyStateMachine(Node):
     def __init__(self, robot_id):
@@ -23,6 +28,8 @@ class PinkyStateMachine(Node):
         self.current_job = None 
         self.current_slot_num = 0 
         
+        self.stop_spike_count = 0 
+        
         self.navigator = BasicNavigator()
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.tf_buffer = Buffer()
@@ -31,19 +38,19 @@ class PinkyStateMachine(Node):
         self.traffic_pub = self.create_publisher(String, '/traffic/request', 10)
         self.traffic_sub = self.create_subscription(String, '/traffic/response', self.traffic_callback, 10)
         
-        self.server_cmd = None
+        self.server_cmd = None 
 
         self.create_timer(3.0, self.battery_callback)
 
         try:
             self.ir_sensor = IR()
-            self.get_logger().info("IR Sensor Initialized.")
+            self.get_logger().info("✅ IR Sensor Initialized.")
         except Exception:
             self.ir_sensor = None
             
-        self.VAL_MIN, self.VAL_MAX, self.STOP_LINE_VAL = 215, 4095, 3600
-        self.BASE_SPEED_MPS = 0.06 
-        self.KP = 0.003
+        self.STOP_LINE_VAL = 3900  
+        self.BASE_SPEED_MPS = 0.06  
+        self.KP = 0.042
 
         self.waypoints = {
             'WP1': (0.435, -0.36), 'WP2': (0.435, 0.01), 'WP3': (0.435, 0.38),
@@ -108,27 +115,26 @@ class PinkyStateMachine(Node):
         while rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0.1)
             
-            # --- State 1: 운송 대기 ---
             if self.state == 1:
-                if self.battery < 80.0:
+                # [해결 3] 히스테리시스 적용: 60.0% 밑으로 떨어져야만 다시 충전하러 감 (핑퐁 방지)
+                if self.battery < 60.0:
                     print("⚠️ 배터리 부족. 충전 모드 복귀.")
                     self.report_state(6)
                     continue
                 
                 if self.current_slot_num != 3:
-                    print(f"🚫 3번 슬롯 대기 중... (현재: {self.current_slot_num}번)")
                     self.report_state(6) 
                     continue
-
+                
                 if self.current_job is None:
                     res = self.reliable_request(f"REQ_TASK|{self.robot_id}", "DISPATCH")
                     self.current_job = res[2]
                     print(f"✅ 작업 할당됨! 픽업지: {self.current_job}")
-                    self.current_slot_num = 0 
+                    # 여기서 current_slot_num을 0으로 덮어쓰지 않고 살려둡니다! (물리적 이탈 판정을 위해)
                     self.report_state(2)
             
-            # --- State 2: 운송중 ---
             elif self.state == 2:
+                print(f"[{self.robot_id}] State 2: 운송 시작")
                 cands = self.get_candidate_wps(self.get_current_xy())
                 curr_node = cands[0] if cands else "Start_Point"
                 
@@ -138,40 +144,40 @@ class PinkyStateMachine(Node):
                 dy = arm_target_pos[1] - pickup_pos[1]
                 target_yaw_deg = math.degrees(math.atan2(dy, dx))
                 
-                self.navigate_segment(curr_node, self.current_job, target_yaw_deg, "픽업 이동")
+                # is_leaving_slot=True 옵션을 켜서, 첫 웨이포인트(안전 구역) 도달 시 슬롯을 반납하게 함
+                self.navigate_segment(curr_node, self.current_job, target_yaw_deg, is_leaving_slot=True)
+                print("픽업존 도착")
                 time.sleep(3.0)
-                self.navigate_segment(self.current_job, 'WP3', 180.0, "하차지 이동")
+                
+                self.navigate_segment(self.current_job, 'WP3', 180.0) # 하차지로 이동할 때는 False
                 self.report_state(3)
                 
-            # --- State 3: 출고중 ---
             elif self.state == 3:
+                print(f"[{self.robot_id}] 패킹 구역 확인...")
                 while rclpy.ok():
                     res = self.reliable_request(f"CHECK_PACKING|{self.robot_id}", ["PACKING_AREA_FREE", "PACKING_AREA_BUSY"])
                     if res[1] == "PACKING_AREA_FREE": break
                     time.sleep(1.0)
                 
+                print(f"[{self.robot_id}] 라인 주행 시작")
                 self.follow_line_until_stop(stop_count_target=1)
                 self.report_state(4)
                 
-            # --- State 4: 패킹 대기 ---
             elif self.state == 4:
                 self.reliable_request(f"PACKING_START|{self.robot_id}", "PACKING_DONE", timeout_sec=2.0)
                 self.report_state(5)
 
-            # --- State 5: 복귀 ---
             elif self.state == 5:
                 res = self.reliable_request(f"CHARGING_REQ|{self.robot_id}", "CHARGING_ASSIGN")
                 assigned_slot = int(res[2])
                 print(f">>> {assigned_slot}번 충전소로 이동")
                 
                 self.current_slot_num = assigned_slot
-                
-                # [수정] 탈출 함수 삭제하고 바로 트레이싱 시작
                 self.follow_line_until_stop(stop_count_target=assigned_slot)
                 self.report_state(6)
 
-            # --- State 6: 충전 (능동적 당겨짐) ---
             elif self.state == 6:
+                # 충전 완료 목표치는 80.0 유지
                 if self.battery >= 80.0 and self.current_slot_num == 3:
                     self.report_state(1)
                     time.sleep(1.0)
@@ -181,10 +187,7 @@ class PinkyStateMachine(Node):
                     res = self.reliable_request(f"CHECK_ADVANCE|{self.robot_id}|{self.current_slot_num}", ["ADVANCE_OK", "STAY"], timeout_sec=1.5)
                     if res[1] == "ADVANCE_OK":
                         print(f"[{self.robot_id}] 📢 전진 승인 획득!")
-                        
-                        # [수정] 여기서도 바로 트레이싱 시작
                         self.follow_line_until_stop(stop_count_target=1)
-                        
                         self.current_slot_num = int(res[2])
                         print(f"✅ 전진 완료. (현재: {self.current_slot_num}번)")
                     else:
@@ -195,7 +198,8 @@ class PinkyStateMachine(Node):
     # =========================================================
     # Navigation & Traffic
     # =========================================================
-    def navigate_segment(self, start_node, target_node, yaw_deg, desc):
+    # [수정] is_leaving_slot 매개변수 추가 (기본값 False)
+    def navigate_segment(self, start_node, target_node, yaw_deg, is_leaving_slot=False):
         start_pos = self.waypoints[start_node]
         target_pos = self.waypoints[target_node]
         route_wps = self.get_smart_route(start_pos, target_pos)
@@ -208,7 +212,8 @@ class PinkyStateMachine(Node):
         full_route = filtered_wps + [target_node]
         curr_node_name = start_node
         curr_pos = start_pos
-        for next_wp_name in full_route:
+        
+        for i, next_wp_name in enumerate(full_route):
             next_pos = self.waypoints[next_wp_name]
             self.request_access(curr_node_name, next_wp_name)
             dx, dy = next_pos[0] - curr_pos[0], next_pos[1] - curr_pos[1]
@@ -218,13 +223,22 @@ class PinkyStateMachine(Node):
             self.rotate_precision(req_yaw)
             pose = self.create_pose(next_pos[0], next_pos[1], req_yaw)
             self.navigator.goToPose(pose)
-            while not self.navigator.isTaskComplete(): pass 
+            
+            while not self.navigator.isTaskComplete(): 
+                rclpy.spin_once(self, timeout_sec=0.01)
+                
             if self.navigator.getResult() == TaskResult.SUCCEEDED:
                 self.release_access(curr_node_name, next_wp_name)
+                
+                # [해결 2] 첫 번째 웨이포인트(충전소 바깥의 안전지대)에 도착했을 때만 서버에 반납 통보!
+                if is_leaving_slot and i == 0 and self.current_slot_num != 0:
+                    print(f"[{self.robot_id}] 첫 안전 웨이포인트({next_wp_name}) 도달! 슬롯 {self.current_slot_num}번 확실히 반납.")
+                    self.reliable_request(f"RELEASE_SLOT|{self.robot_id}|{self.current_slot_num}", "RELEASE_SLOT_ACK")
+                    self.current_slot_num = 0 # 이제 진짜로 내 슬롯 번호를 0으로 초기화
+                    
                 curr_node_name = next_wp_name
                 curr_pos = next_pos
-            else:
-                return
+            else: return
             
     def request_access(self, curr, next_n):
         while rclpy.ok():
@@ -236,25 +250,46 @@ class PinkyStateMachine(Node):
         self.reliable_request(f"RELEASE|{self.robot_id}|{prev}|{curr}", "RELEASE_ACK")
 
     # =========================================================
-    # [핵심] 스마트 Line Tracing (초기 정지선 무시 로직 포함)
+    # 스마트 라인 트레이싱
     # =========================================================
+    def get_line_error(self):
+        if not self.ir_sensor: return "LOST"
+        vals = self.ir_sensor.read_ir()
+        if not vals: return "LOST"
+        
+        l, c, r = vals
+        
+        if l > self.STOP_LINE_VAL and c > self.STOP_LINE_VAL and r > self.STOP_LINE_VAL: 
+            self.stop_spike_count += 1
+            if self.stop_spike_count >= 5:
+                return "STOP"
+            else:
+                return 0.0 
+        else:
+            self.stop_spike_count = 0 
+
+        if max(vals) < 800: 
+            self.stop_spike_count = 0
+            return "LOST"
+            
+        return float(l - r)
+
     def follow_line_until_stop(self, stop_count_target=1):
         detected = 0
         cmd = Twist()
-        rate = self.create_rate(30)
         
         on_stop_line = True 
-        has_cleared_initial_stop = False # 시작할 때 밟고 있는 정지선 무시용 플래그
+        has_cleared_initial_stop = False 
         white_line_count = 0 
         
         print(f"🏁 라인 주행 시작 (목표 정지선: {stop_count_target}개)")
 
         while rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=0.03)
             err = self.get_line_error()
             
             if err == "STOP":
                 white_line_count = 0 
-                # 처음에 밟고 있던 정지선을 완전히 벗어난 이후에만 새로운 정지선으로 인정
                 if has_cleared_initial_stop:
                     if not on_stop_line:
                         detected += 1
@@ -264,62 +299,31 @@ class PinkyStateMachine(Node):
                             self.cmd_pub.publish(Twist())
                             break
                 
-                # 정지선 위를 지나가는 동안은 P제어 없이 그냥 직진!
                 cmd.linear.x = self.BASE_SPEED_MPS
                 cmd.angular.z = 0.0
                 self.cmd_pub.publish(cmd)
-                
-            elif err in ["CORNER_LEFT", "CORNER_RIGHT"]:
-                # 코너를 만났다는 건 이미 첫 정지선을 한참 지났다는 뜻이므로 플래그 해제
-                has_cleared_initial_stop = True 
-                
-                direction = "좌회전" if err == "CORNER_LEFT" else "우회전"
-                turn_sign = 1.0 if err == "CORNER_LEFT" else -1.0
-                print(f"↩️ 90도 {direction} 턴 수행")
-                
-                cmd.linear.x, cmd.angular.z = 0.05, 0.0
-                self.cmd_pub.publish(cmd); time.sleep(0.4) 
-                
-                cmd.linear.x, cmd.angular.z = 0.0, 0.6 * turn_sign
-                self.cmd_pub.publish(cmd); time.sleep(0.5)
-                
-                while rclpy.ok():
-                    curr_vals = self.ir_sensor.read_ir()
-                    if curr_vals and curr_vals[1] > 2500: 
-                        self.cmd_pub.publish(Twist()); break
-                    cmd.angular.z = 0.4 * turn_sign
-                    self.cmd_pub.publish(cmd); rate.sleep()
-                    
-                white_line_count, on_stop_line = 0, False
                 
             elif err == "LOST":
                 self.cmd_pub.publish(Twist()) 
             
             else:
-                # 정상적인 라인을 타고 있음
                 white_line_count += 1
-                if white_line_count > 5: 
+                if white_line_count > 20: 
                     on_stop_line = False 
-                    has_cleared_initial_stop = True # 완벽하게 일반 라인에 진입했음을 확정!
+                    has_cleared_initial_stop = True 
                     
-                angular = max(min(err * self.KP, 1.0), -1.0)
-                cmd.linear.x = self.BASE_SPEED_MPS
+                abs_err = abs(err)
+                
+                angular = (err * self.KP)
+                angular = max(min(angular, 1.0), -1.0)
+                
+                speed_drop = (abs_err / 2500.0) * (self.BASE_SPEED_MPS * 1.0)
+                cmd.linear.x = max(self.BASE_SPEED_MPS - speed_drop, 0.01)
                 cmd.angular.z = angular
+                    
                 self.cmd_pub.publish(cmd)
                 
-            rate.sleep()
         time.sleep(0.5)
-
-    def get_line_error(self):
-        if not self.ir_sensor: return 0.0
-        vals = self.ir_sensor.read_ir()
-        if not vals: return None
-        l, c, r = vals
-        if l > 3600 and c > 3600 and r > 3600: return "STOP"
-        if max(vals) < 800: return "LOST"
-        if l > 3000 and c > 3000 and r < 1500: return "CORNER_LEFT"
-        if r > 3000 and c > 3000 and l < 1500: return "CORNER_RIGHT"
-        return float(r - l)
 
     # =========================================================
     # Utils
@@ -331,12 +335,12 @@ class PinkyStateMachine(Node):
         pose = self.create_pose(sx, sy, 0.0)
         self.navigator.setInitialPose(pose)
         while rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=0.1)
             try:
                 self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
                 return
             except:
-                time.sleep(1.0)
-                rclpy.spin_once(self, timeout_sec=0.1)
+                time.sleep(0.5)
 
     def get_current_xy(self):
         try:
@@ -357,11 +361,15 @@ class PinkyStateMachine(Node):
         self.navigator.clearAllCostmaps() 
         cmd = Twist()
         while rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=0.01)
             try:
                 t = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
                 q = t.transform.rotation
                 _, _, cyaw = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
-            except: time.sleep(0.1); continue
+            except: 
+                time.sleep(0.05)
+                continue
+                
             err = target_yaw_rad - cyaw
             err = math.atan2(math.sin(err), math.cos(err))
             if abs(err) < 0.017: self.cmd_pub.publish(Twist()); break
@@ -369,7 +377,6 @@ class PinkyStateMachine(Node):
             if abs(vel) < 0.2: vel = 0.2 * np.sign(vel)
             cmd.angular.z = vel
             self.cmd_pub.publish(cmd)
-            rclpy.spin_once(self, timeout_sec=0.01)
         time.sleep(0.5)
 
     def get_candidate_wps(self, pos, tolerance=0.1):
