@@ -159,7 +159,7 @@ class MyMainWindow(QMainWindow):
         tabs.addTab(self.ros_monitor_tab, "ROS Monitor")
         
         # Log 탭
-        self.log_tab = LogTab()
+        self.log_tab = LogTab(self.comm_manager)
         tabs.addTab(self.log_tab, "Log")
         
         # Manual 탭에 컨트롤러 연결

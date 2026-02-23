@@ -8,9 +8,13 @@ import uvicorn
 import os
 import httpx
 
+# ==========================================================
+# 0. 초기 설정 및 시스템 구성
+# ==========================================================
+
 app = FastAPI(title="LOVO Factory System API")
 
-# Enable CORS for all origins
+# 모든 Origin에 대해 CORS 허용 (GUI 및 외부 서비스 통신용)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database Configuration
+# 데이터베이스 연결 설정
 db_config = {
     'host': 'localhost',
     'user': 'lovoDB',
@@ -28,23 +32,45 @@ db_config = {
 }
 
 def get_db_connection():
+    """MySQL 데이터베이스 연결을 생성하여 반환합니다."""
     return mysql.connector.connect(**db_config)
 
-# Pydantic Models for validation
+# ==========================================================
+# 1. 데이터 모델 정의 (Pydantic Models)
+# ==========================================================
+
 class OrderItem(BaseModel):
+    """주문 항목 상세 정보 (가구 종류, 수량 등)"""
     furnitureType: str
     quantity: int = 1
     components: Optional[dict] = None
 
 class OrderCreate(BaseModel):
+    """새 주문 생성을 위한 요청 데이터 구조"""
     items: List[OrderItem]
     customer_phone: Optional[str] = "010-0000-0000"
-
-    # This matches the JSON structure from bridge_manager.py
-    # { "pinky1": {"state": "...", "location": "...", "battery": 0.0}, ... }
     statuses: dict
 
+class OrderResponse(BaseModel):
+    """주문 목록 응답 구조"""
+    order_id: int
+    customer_name: str
+    furniture_name: str
+    quantity: int
+    status: str
+    picking_command: Optional[float] = None
+    packing_command: Optional[float] = None
+    ordered_at: str
+
+class OrderCommandResponse(BaseModel):
+    """주문 커맨드 단일 조회 응답 구조"""
+    order_id: int
+    picking_command: Optional[float]
+    packing_command: Optional[float]
+    new_status: str
+
 class AICoordinateTarget(BaseModel):
+    """AI 분석 타겟 좌표 상세 정보"""
     track_id: Optional[int] = None
     conf: Optional[float] = None
     cx: Optional[float] = None
@@ -54,6 +80,7 @@ class AICoordinateTarget(BaseModel):
     base_coord: Optional[dict] = None
 
 class AICoordinateData(BaseModel):
+    """AI 서버로부터 전달받는 정밀 분석 데이터 구조"""
     robot_id: str
     t: float
     seq: int
@@ -61,476 +88,8 @@ class AICoordinateData(BaseModel):
     state: str
     target: Optional[AICoordinateTarget] = None
 
-# ==========================================================
-# 1. 자재 및 제품 정보 조회 (Web UI용)
-# ==========================================================
-
-@app.get("/api/products")
-def get_products():
-    """DB의 가구 마스터 테이블 정보를 모두 가져옵니다"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        cursor.execute("SELECT * FROM furniture ORDER BY furniture_id")
-        furniture_db_rows = cursor.fetchall()
-        
-        return furniture_db_rows
-
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-
-@app.get("/api/materials")
-def get_materials():
-    """현재 공장 창고에 남은 자재 재고 정보를 가져옵니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT material_id, name, qty_on_hand FROM material")
-        rows = cursor.fetchall()
-        
-        data = []
-        for r in rows:
-            data.append({
-                'id': r['material_id'],
-                'name': r['name'],
-                'quantity': r['qty_on_hand'],
-                'unit': 'ea',
-                'minStock': 10
-            })
-            
-        return data
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-            
-def get_customers():
-    """모든 고객 정보를 가져옵니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT customer_id, name, phone, address, created_at FROM customer ORDER BY customer_id DESC")
-        rows = cursor.fetchall()
-        return rows
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-
-@app.get("/api/charging-stations")
-def get_charging_stations():
-    """모든 충전소 정보를 가져옵니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT charger_id, name, x, y, status FROM charging_station")
-        rows = cursor.fetchall()
-        return rows
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-
-
-
-# ==========================================================
-# 2. 로봇 상태 관리 (Bridge Manager & Dashboard)
-# ==========================================================
-
-@app.get("/api/robots")
-def get_robots():
-    """모든 로봇의 현재 상태 정보를 가져옵니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT robot_id, robot_role, robot_kind, pose_x, pose_y, action_state, battery_percent FROM robot")
-        rows = cursor.fetchall()
-        return rows
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-@app.get("/api/robot-jobs")
-def get_robot_jobs():
-    """최근 로봇 작업 목록을 가져옵니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT job_id, order_id, robot_id, job_type, status, created_at, started_at, finished_at 
-            FROM robot_job 
-            ORDER BY created_at DESC LIMIT 50
-        """)
-        rows = cursor.fetchall()
-        return rows
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-
-@app.get("/api/robot-logs")
-def get_robot_logs():
-    """최근 로봇 상태 로그를 가져옵니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT log_id, robot_id, pose_x, pose_y, battery_percent, action_state, ts 
-            FROM robot_state_log 
-            ORDER BY ts DESC LIMIT 100
-        """)
-        rows = cursor.fetchall()
-        return rows
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-
-@app.post("/api/status")
-def update_robot_status(status_data: dict):
-    """[핵심] ROS2(Bridge Manager)로부터 로봇의 실시간 정보를 받아 DB를 갱신합니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Mapping from ROS names to DB roles
-        name_map = {
-            'pinky1': 'PINKY_1',
-            'pinky2': 'PINKY_2',
-            'pinky3': 'PINKY_3'
-        }
-        
-        for ros_name, info in status_data.items():
-            db_role = name_map.get(ros_name)
-            if not db_role:
-                continue
-                
-            state = info.get('state', 'IDLE')
-            # Map ROS state strings to DB ENUM if necessary
-            # For now, let's assume they match or are handled gracefully
-            
-            # Simple conversion if needed: MOVING_TO_PICKUP_1 -> TRANSPORTING
-            if 'MOVING' in state:
-                db_state = 'TRANSPORTING'
-            elif 'AT_PICKUP' in state:
-                db_state = 'PICKING'
-            elif 'IDLE' in state:
-                db_state = 'IDLE'
-            else:
-                db_state = state
-                
-            battery = info.get('battery', 100.0)
-            
-            cursor.execute("""
-                UPDATE robot 
-                SET action_state = %s, battery_percent = %s, last_seen_at = CURRENT_TIMESTAMP
-                WHERE robot_role = %s
-            """, (db_state, battery, db_role))
-            
-        conn.commit()
-        return {"status": "success"}
-    except Error as e:
-        return {"status": "error", "message": str(e)}
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-
-
-
-# ==========================================================
-# 3. 주문 및 작업 할당 (CIM: Computer Integrated Manufacturing)
-# ==========================================================
-
-@app.post("/api/orders", status_code=201)
-def create_order(order: OrderCreate):
-    """고객의 주문을 접수하고 DB에 등록"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # 1. Get or Create Customer
-        demo_phone = order.customer_phone or "010-0000-0000"
-        cursor.execute("SELECT customer_id FROM customer WHERE phone = %s", (demo_phone,))
-        cust = cursor.fetchone()
-        if not cust:
-            cursor.execute("INSERT INTO customer (name, phone) VALUES ('Demo User', %s)", (demo_phone,))
-            customer_id = cursor.lastrowid
-        else:
-            customer_id = cust['customer_id']
-            
-        order_ids = []
-        # 2. Process Items
-        for item in order.items:
-            cat = item.furnitureType.upper()
-            qty = item.quantity
-            
-            cursor.execute("SELECT furniture_id FROM furniture WHERE category = %s LIMIT 1", (cat,))
-            furn = cursor.fetchone()
-            
-            if furn:
-                furn_id = furn['furniture_id']
-                cursor.execute(
-                    "INSERT INTO orders (customer_id, furniture_id, quantity) VALUES (%s, %s, %s)",
-                    (customer_id, furn_id, qty)
-                )
-                order_ids.append(cursor.lastrowid)
-            else:
-                import logging
-                logging.debug(f"No furniture found for category {cat}")
-
-        conn.commit()
-        return {'message': 'Order created successfully', 'orderIds': order_ids}
-
-    except Error as e:
-        if 'conn' in locals() and conn.is_connected():
-            conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-@app.get("/api/inventory-logs")
-def get_inventory_logs():
-    """최근 자재 재고 변동 기록을 가져옵니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT tx_id, material_id, order_id, tx_type, qty_delta, reason, created_at 
-            FROM inventory_tx 
-            ORDER BY created_at DESC LIMIT 50
-        """)
-        rows = cursor.fetchall()
-        return rows
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-@app.get("/api/orders")
-def get_orders():
-    """최근 주문 목록을 가져옵니다."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT o.order_id, c.name as customer_name, f.name as furniture_name, o.quantity, o.status, o.ordered_at 
-            FROM orders o
-            JOIN customer c ON o.customer_id = c.customer_id
-            JOIN furniture f ON o.furniture_id = f.furniture_id
-            ORDER BY o.ordered_at DESC LIMIT 50
-        """)
-        rows = cursor.fetchall()
-        return rows
-    except Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            conn.close()
-
-@app.get("/api/orders/{order_id}/command")
-def get_order_command(order_id: int):
-    """
-    [로봇 연동] 주문 ID를 기반으로 피킹 커맨드를 생성하고, 
-    주문 상태를 'RECEIVED'에서 'MAKING'으로 변경합니다.
-    """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # 1. 트랜잭션 시작 (조회와 업데이트를 하나로 묶음)
-        conn.start_transaction()
-
-        # 2. 가구의 자재 구성 정보(BOM) 및 현재 주문 상태 조회
-        query = """
-            SELECT o.status, f.top_material_id, f.leg_material_id, f.wheel_material_id, f.kit_material_id
-            FROM orders o
-            JOIN furniture f ON o.furniture_id = f.furniture_id
-            WHERE o.order_id = %s
-        """
-        cursor.execute(query, (order_id,))
-        row = cursor.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Order or Furniture not found")
-
-        # 3. 주문 상태 업데이트 (RECEIVED일 때만 MAKING으로 변경)
-        if row['status'] == 'RECEIVED':
-            cursor.execute("""
-                UPDATE orders 
-                SET status = 'MAKING', started_at = CURRENT_TIMESTAMP 
-                WHERE order_id = %s
-            """, (order_id,))
-
-        # 4. 커맨드 생성 로직 (1.[프레임][다리][바퀴][작업킷])
-        c4 = "4" if row['top_material_id'] else "0"
-        c5 = "5" if row['leg_material_id'] else "0"
-        c6 = "6" if row['wheel_material_id'] else "0"
-        c7 = "7" if row['kit_material_id'] else "0"
-        
-        command = f"1.{c4}{c5}{c6}{c7}"
-
-        # 5. 모든 작업 성공 시 커밋
-        conn.commit()
-        
-        return {
-            "order_id": order_id, 
-            "command": float(command),
-            "new_status": "MAKING"
-        }
-
-    except Error as e:
-        if conn:
-            conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn and conn.is_connected():
-            conn.close()
-
-@app.patch("/api/orders/{order_id}/status")
-def update_order_status(order_id: int, status: str):
-    """
-    로봇이 작업을 완료하면 주문 상태를 업데이트하고, 
-    'DONE' 상태일 경우 가구 구성에 맞게 재고를 자동 차감합니다.
-    """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # 1. 트랜잭션 시작
-        conn.start_transaction()
-
-        # 2. 주문 상태 업데이트 (성공 시 시각 기록 포함)
-        cursor.execute("""
-            UPDATE orders 
-            SET status = %s, finished_at = CURRENT_TIMESTAMP 
-            WHERE order_id = %s
-        """, (status, order_id))
-
-        # 3. 만약 상태가 'DONE'으로 바뀌는 것이라면 재고 차감 실행
-        if status.upper() == 'DONE':
-            # 3-1. 해당 주문의 가구 구성(자재 ID 및 수량) 조회
-            cursor.execute("""
-                SELECT f.top_material_id, f.top_qty_per_unit,
-                       f.leg_material_id, f.leg_qty_per_unit,
-                       f.wheel_material_id, f.wheel_qty_per_unit,
-                       f.kit_material_id, f.kit_qty_per_unit
-                FROM orders o
-                JOIN furniture f ON o.furniture_id = f.furniture_id
-                WHERE o.order_id = %s
-            """, (order_id,))
-            bom = cursor.fetchone()
-
-            if bom:
-                # 3-2. 자재별 차감 쿼리 실행 (자재 ID가 존재하고 수량이 0보다 클 때만)
-                materials_to_update = [
-                    (bom['top_qty_per_unit'], bom['top_material_id']),
-                    (bom['leg_qty_per_unit'], bom['leg_material_id']),
-                    (bom['wheel_qty_per_unit'], bom['wheel_material_id']),
-                    (bom['kit_qty_per_unit'], bom['kit_material_id'])
-                ]
-
-                for qty, m_id in materials_to_update:
-                    if m_id and qty > 0:
-                        cursor.execute("""
-                            UPDATE material 
-                            SET qty_on_hand = qty_on_hand - %s 
-                            WHERE material_id = %s
-                        """, (qty, m_id))
-
-        # 4. 모든 작업 성공 시 커밋
-        conn.commit()
-        return {"status": "success", "message": f"Order {order_id} updated to {status} and inventory deducted."}
-
-    except Error as e:
-        # 오류 발생 시 롤백하여 데이터 보존
-        if conn:
-            conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn and conn.is_connected():
-            conn.close()
-
-
-# ==========================================================
-# 4. 전체 공정 제어 (Mission Control)
-# ==========================================================
-
-# Global variable for demo mission control
-current_mission_command = "WAIT"
-
-@app.get("/api/mission/command")
-def get_mission_command():
-    """Endpoint for bridge_manager to check for new commands."""
-    global current_mission_command
-    return {"command": current_mission_command}
-
-@app.post("/api/mission/start")
-def start_global_mission():
-    """Endpoint for web UI to trigger mission."""
-    global current_mission_command
-    current_mission_command = "START"
-    return {"status": "Mission started"}
-
-# ==========================================================
-# 5. AI 지능형 관제 (AI Microservice Bridge)
-# ==========================================================
-
-@app.post("/api/ai/analysis")
-async def ai_analysis(request: Request):
-    """AI 서버로 분석 요청을 전달하고 결과를 반환"""
-    try:
-        data = await request.json()
-        
-        # Call AI Server (Running on port 8000)
-        async with httpx.AsyncClient() as client:
-            response = await client.post("http://localhost:8000/predict", json=data)
-            
-        if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail="AI Server Error")
-            
-        return response.json()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Global storage for latest coordinates
-latest_ai_coordinates: Optional[AICoordinateData] = None
-
-
-@app.post("/api/ai/coordinates")
-async def receive_ai_coordinates(data: AICoordinateData):
-    """AI 서버로부터 분석 좌표를 수신하여 저장합니다."""
-    global latest_ai_coordinates
-    try:
-        latest_ai_coordinates = data # Update global state
-        
-        # Log for verification
-        import logging
-        print(f"Received coordinates from AI: {data.dict()}") 
-        logging.info(f"Received coordinates from AI: {data.dict()}")
-        return {"status": "success", "received": data.seq}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/ai/coordinates", response_model=Optional[AICoordinateData])
-def get_ai_coordinates():
-    """저장된 최신 AI 분석 좌표를 가져옵니다 (로봇의 정밀 피킹에 활용)"""
-    return latest_ai_coordinates
-
-
-
 class AIEventLogData(BaseModel):
+    """AI 비전 탐지 이벤트 로그 구조"""
     robot_id: str
     event_type: str
     message: str
@@ -541,59 +100,224 @@ class AIEventLogData(BaseModel):
     image_path: Optional[str] = None
     image_b64: Optional[str] = None
 
-@app.post("/api/ai/event")
-def post_ai_event(data: AIEventLogData):
-    """AI 비전 이벤트 로그 저장"""
+# ==========================================================
+# 2. 로봇 상태 및 매핑 정의 (Integer Codes)
+# ==========================================================
+
+# 로봇팔(ARM) 상태 코드 매핑 (0~5)
+ARM_STATE_MAP = {
+    0: "INIT",
+    1: "IDLE",
+    2: "BUSY",
+    3: "SUCCESS",
+    4: "ERROR",
+    5: "FIRE"
+}
+
+# 운송 로봇(Pinky) 상태 코드 매핑 (0~7)
+PINKY_STATE_MAP = {
+    0: "충전중",
+    1: "출발 대기중",
+    2: "운송중 (Nav2)",
+    3: "픽업대기 중",
+    4: "출고중 (라인트레이싱)",
+    5: "패킹대기중",
+    6: "복귀중",
+    7: "에러 (ERROR)"
+}
+
+def format_robot_data(rows):
+    """DB의 정수형 상태 코드를 각 로봇 특성에 맞는 한글/영문 텍스트로 변환합니다."""
+    for row in rows:
+        kind = row.get('robot_kind')
+        state_code = row.get('action_state', 0)
+        
+        if kind == 'ARM':
+            row['action_state'] = ARM_STATE_MAP.get(state_code, f"UNKNOWN({state_code})")
+        else:
+            row['action_state'] = PINKY_STATE_MAP.get(state_code, f"알수없음({state_code})")
+    return rows
+
+# ==========================================================
+# 3. 로봇 모니터링 및 상태 업데이트 API
+# ==========================================================
+
+@app.get("/api/robots")
+def get_robots():
+    """모든 로봇(팔 & 핑키)의 현재 상태를 통합 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        # 6축 포즈(ARM)와 3축 포즈(Pinky)를 UNION으로 통합
+        query = """
+            SELECT 
+                arm_id AS robot_id, robot_role, 'ARM' AS robot_kind, 
+                pose_x, pose_y, pose_z, pose_roll, pose_pitch, pose_yaw,
+                action_state, NULL AS battery_percent, current_order_id 
+            FROM robot_arm
+            UNION ALL
+            SELECT 
+                pinky_id AS robot_id, robot_role, 'PINKY' AS robot_kind, 
+                pose_x, pose_y, 0.0 AS pose_z, 0.0 AS pose_roll, 0.0 AS pose_pitch, pose_yaw,
+                action_state, battery_percent, current_order_id 
+            FROM robot_pinky
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        return format_robot_data(rows)
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+@app.get("/api/robots/arms")
+def get_robot_arms():
+    """로봇팔들의 6축 좌표 및 상태 코드를 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT 
+                arm_id AS robot_id, robot_role, 'ARM' AS robot_kind, 
+                pose_x, pose_y, pose_z, pose_roll, pose_pitch, pose_yaw,
+                action_state, NULL AS battery_percent, current_order_id 
+            FROM robot_arm
+        """)
+        rows = cursor.fetchall()
+        return format_robot_data(rows)
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+@app.get("/api/robots/pinkies")
+def get_robot_pinkies():
+    """운송 로봇들의 배터리 및 주행 상태를 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT 
+                pinky_id AS robot_id, robot_role, 'PINKY' AS robot_kind, 
+                pose_x, pose_y, pose_yaw, battery_percent, action_state, current_order_id 
+            FROM robot_pinky
+        """)
+        rows = cursor.fetchall()
+        return format_robot_data(rows)
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+@app.post("/api/status")
+def update_robot_status(status_data: dict):
+    """[핵심] ROS2 노드로부터 로봇의 실시간 좌표 및 상태 정보(Int/String)를 받아 DB를 동기화합니다."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # 1. 이미지 저장 (DB 또는 파일 시스템)
-        # 여기서는 간단하게 파일 경로를 저장하는 것으로 가정
-        # 실제로는 Base64를 디코딩하여 파일로 저장하거나, BLOB으로 저장
-        image_path = None
-        if data.image_path:
-            image_path = data.image_path
-        elif data.image_b64:
-            # Base64 디코딩 및 저장 로직 추가 필요
-            pass
-            
-        # 2. DB에 이벤트 로그 저장
-        cursor.execute("""
-            INSERT INTO ai_event_log 
-            (robot_id, event_type, message, timestamp, seq, label, map_x, map_y, image_path)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            data.robot_id,
-            data.event_type,
-            data.message,
-            data.timestamp,
-            data.seq,
-            data.label,
-            data.map_coord.get('x') if data.map_coord else None,
-            data.map_coord.get('y') if data.map_coord else None,
-            image_path
-        ))
+        # ROS 이름 규약과 DB 내 역할 이름 매칭
+        name_map = {
+            'pinky1': ('PINKY', 'PINKY_1'),
+            'pinky2': ('PINKY', 'PINKY_2'),
+            'pinky3': ('PINKY', 'PINKY_3'),
+            'robot1': ('ARM', 'ARM_1'),
+            'robot2': ('ARM', 'ARM_2')
+        }
         
+        for ros_name, info in status_data.items():
+            target = name_map.get(ros_name)
+            if not target: continue
+            
+            kind, db_role = target
+            state = info.get('state', 1) # 기본값: IDLE(1)
+            
+            # 문자열로 들어온 경우 정수형 코드로 매핑
+            if isinstance(state, str):
+                s = state.upper()
+                if kind == 'PINKY':
+                    if 'CHARGING' in s: db_state = 0
+                    elif 'READY' in s or 'WAIT' in s: db_state = 1
+                    elif 'NAV' in s or 'MOVING' in s: db_state = 2
+                    elif 'PICKUP' in s: db_state = 3
+                    elif 'SHIPPING' in s or 'LINE' in s: db_state = 4
+                    elif 'PACK' in s: db_state = 5
+                    elif 'RETURN' in s: db_state = 6
+                    elif 'ERROR' in s: db_state = 7
+                    else: db_state = 1
+                else: # ARM
+                    if 'INIT' in s: db_state = 0
+                    elif 'IDLE' in s: db_state = 1
+                    elif 'BUSY' in s or 'MOVING' in s: db_state = 2
+                    elif 'SUCCESS' in s: db_state = 3
+                    elif 'ERROR' in s: db_state = 4
+                    elif 'FIRE' in s: db_state = 5
+                    else: db_state = 1
+            else:
+                db_state = int(state)
+                
+            battery = info.get('battery', 100.0)
+            px, py, pz = info.get('x'), info.get('y'), info.get('z')
+            roll, pitch, yaw = info.get('roll'), info.get('pitch'), info.get('yaw')
+            
+            if kind == 'ARM':
+                # 로봇팔은 6축 정보 업데이트
+                cursor.execute("""
+                    UPDATE robot_arm 
+                    SET action_state = %s, pose_x = COALESCE(%s, pose_x), pose_y = COALESCE(%s, pose_y), 
+                        pose_z = COALESCE(%s, pose_z), pose_roll = COALESCE(%s, pose_roll), 
+                        pose_pitch = COALESCE(%s, pose_pitch), pose_yaw = COALESCE(%s, pose_yaw), 
+                        last_seen_at = CURRENT_TIMESTAMP 
+                    WHERE robot_role = %s
+                """, (db_state, px, py, pz, roll, pitch, yaw, db_role))
+            else:
+                # 핑키는 배터리 및 주행 좌표(3축) 업데이트
+                cursor.execute("""
+                    UPDATE robot_pinky 
+                    SET action_state = %s, battery_percent = %s, pose_x = COALESCE(%s, pose_x), 
+                        pose_y = COALESCE(%s, pose_y), pose_yaw = COALESCE(%s, pose_yaw), 
+                        last_seen_at = CURRENT_TIMESTAMP 
+                    WHERE robot_role = %s
+                """, (db_state, battery, px, py, yaw, db_role))
+            
         conn.commit()
-        return {"status": "success", "log_id": cursor.lastrowid}
+        return {"status": "success"}
     except Error as e:
         return {"status": "error", "message": str(e)}
     finally:
         if 'conn' in locals() and conn.is_connected():
             conn.close()
-@app.get("/api/fire-logs")
-def get_fire_logs():
-    """최근 화재 감지 기록을 가져옵니다."""
+
+# ==========================================================
+# 4. 자재, 고객 및 충전소 정보 조회
+# ==========================================================
+
+@app.get("/api/products")
+def get_products():
+    """가구 마스터 정보 및 사양을 조회합니다."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT incident_id, occurred_at, location, severity, description, image_path, is_handled, handled_at 
-            FROM fire_incidents 
-            ORDER BY occurred_at DESC LIMIT 50
-        """)
+        cursor.execute("SELECT * FROM furniture ORDER BY furniture_id")
+        return cursor.fetchall()
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+@app.get("/api/materials")
+def get_materials():
+    """현재 자재 재고 현황을 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT material_id as id, name, qty_on_hand as quantity FROM material")
         rows = cursor.fetchall()
+        for r in rows: r.update({'unit': 'ea', 'minStock': 10})
         return rows
     except Error as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -601,5 +325,237 @@ def get_fire_logs():
         if 'conn' in locals() and conn.is_connected():
             conn.close()
 
+@app.get("/api/customers")
+def get_customers():
+    """등록된 고객 목록을 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT customer_id, name, phone, address FROM customer ORDER BY customer_id")
+        return cursor.fetchall()
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+@app.get("/api/charging-stations")
+def get_charging_stations():
+    """공장 내 로봇 충전소 위치 및 상태를 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT charger_id, name, x, y, status FROM charging_station")
+        return cursor.fetchall()
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+# ==========================================================
+# 5. 주문 처리 및 피킹 명령 생성 (MES/CIM Logic)
+# ==========================================================
+
+@app.post("/api/orders", status_code=201)
+def create_order(order: OrderCreate):
+    """새로운 생산 주문을 접수합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # 고객 확인 및 생성 (데모용 단순화)
+        phone = order.customer_phone or "010-0000-0000"
+        cursor.execute("SELECT customer_id FROM customer WHERE phone = %s", (phone,))
+        cust = cursor.fetchone()
+        customer_id = cust['customer_id'] if cust else None
+        if not customer_id:
+            cursor.execute("INSERT INTO customer (name, phone) VALUES ('Demo User', %s)", (phone,))
+            customer_id = cursor.lastrowid
+            
+        # 2. 주문 순번 확인 (X값 결정: 1, 2, 3 순환)
+        cursor.execute("SELECT COUNT(*) as count FROM orders")
+        order_count = cursor.fetchone()['count']
+        
+        order_ids = []
+        for i, item in enumerate(order.items):
+            # i번째 아이템의 X 좌표 결정 (전체 주문 수 + 현재 루프 인덱스)
+            x_val = ((order_count + i) % 3) + 1
+            
+            cat = item.furnitureType.upper()
+            # 해당 카테고리의 가구 정보 및 BOM 조회
+            cursor.execute("""
+                SELECT furniture_id, top_material_id, leg_material_id, wheel_material_id, kit_material_id 
+                FROM furniture WHERE category = %s LIMIT 1
+            """, (cat,))
+            furn = cursor.fetchone()
+            
+            if furn:
+                # BOM 구성에 따른 ABCD 비트 생성
+                # A: 프레임(4), B: 다리(5), C: 바퀴(6), D: 작업킷(7) / 없으면 0
+                a = "4" if furn['top_material_id'] else "0"
+                b = "5" if furn['leg_material_id'] else "0"
+                c = "6" if furn['wheel_material_id'] else "0"
+                d = "7" if furn['kit_material_id'] else "0"
+                
+                picking_cmd = float(f"{x_val}.{a}{b}{c}{d}")
+                packing_cmd = float(f"0.{a}{b}{c}{d}")
+                
+                cursor.execute(
+                    """INSERT INTO orders (customer_id, furniture_id, quantity, picking_command, packing_command) 
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (customer_id, furn['furniture_id'], item.quantity, picking_cmd, packing_cmd)
+                )
+                order_ids.append(cursor.lastrowid)
+
+        conn.commit()
+        return {'message': 'Order created successfully', 'orderIds': order_ids}
+    except Error as e:
+        if 'conn' in locals() and conn.is_connected(): conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected(): conn.close()
+
+@app.get("/api/orders")
+def get_orders():
+    """최근 주문 목록 및 생산 진행 현황을 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT o.order_id, COALESCE(c.name, '알수없는고객') as customer_name, 
+                   COALESCE(f.name, '알수없는가구') as furniture_name, 
+                   o.quantity, o.status, o.picking_command, o.packing_command, 
+                   DATE_FORMAT(o.ordered_at, '%Y-%m-%d %H:%i:%s') as ordered_at 
+            FROM orders o 
+            LEFT JOIN customer c ON o.customer_id = c.customer_id
+            LEFT JOIN furniture f ON o.furniture_id = f.furniture_id 
+            ORDER BY o.ordered_at DESC LIMIT 50
+        """)
+        return cursor.fetchall()
+    except Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+@app.get("/api/orders/{order_id}/command", response_model=OrderCommandResponse)
+def get_order_command(order_id: int):
+    """주문 ID를 기반으로 로봇 피킹을 위한 비트맵 커맨드(예: 1.4507)를 생성합니다."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        conn.start_transaction()
+
+        query = """
+            SELECT status, picking_command, packing_command
+            FROM orders WHERE order_id = %s
+        """
+        cursor.execute(query, (order_id,))
+        row = cursor.fetchone()
+        if not row: raise HTTPException(status_code=404, detail="Order not found")
+
+        # 주문 수락 시 상태 'MAKING'으로 변경
+        if row['status'] == 'RECEIVED':
+            cursor.execute("UPDATE orders SET status = 'MAKING', started_at = CURRENT_TIMESTAMP WHERE order_id = %s", (order_id,))
+
+        conn.commit()
+        return {
+            "order_id": order_id, 
+            "picking_command": row['picking_command'],
+            "packing_command": row['packing_command'],
+            "new_status": "MAKING"
+        }
+    except Error as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn and conn.is_connected(): conn.close()
+
+# ==========================================================
+# 6. 로그 조회 및 이력 관리
+# ==========================================================
+
+@app.get("/api/robot-jobs")
+def get_robot_jobs():
+    """로봇들에게 할당된 작업 이력을 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT job_id, order_id, COALESCE(arm_id, pinky_id) AS robot_id, job_type, status, created_at FROM robot_job 
+            ORDER BY created_at DESC LIMIT 50
+        """)
+        return cursor.fetchall()
+    finally:
+        if 'conn' in locals() and conn.is_connected(): conn.close()
+
+@app.get("/api/inventory-logs")
+def get_inventory_logs():
+    """자재 입출고 및 재고 변동 이력을 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM inventory_tx ORDER BY created_at DESC LIMIT 50")
+        return cursor.fetchall()
+    finally:
+        if 'conn' in locals() and conn.is_connected(): conn.close()
+
+# ==========================================================
+# 7. AI 지능형 관제 및 화재 감지
+# ==========================================================
+
+latest_ai_coordinates: Optional[AICoordinateData] = None
+
+@app.post("/api/ai/coordinates")
+async def receive_ai_coordinates(data: AICoordinateData):
+    """AI 비전 서버로부터 탐지된 객체의 정밀 좌표를 수신합니다."""
+    global latest_ai_coordinates
+    latest_ai_coordinates = data
+    return {"status": "success"}
+
+@app.get("/api/ai/coordinates")
+def get_ai_coordinates():
+    """저장된 최신 AI 정밀 좌표를 반환합니다 (피킹 보정용)."""
+    return latest_ai_coordinates
+
+@app.get("/api/robot-logs")
+def get_robot_logs():
+    """로봇 상태 변화 히스토리(로그)를 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT log_id, robot_role as robot_id, state_text as state, 
+                   COALESCE(battery_level, 0.0) as battery_level, 
+                   COALESCE(pose_info, 'N/A') as location_text,
+                   DATE_FORMAT(logged_at, '%Y-%m-%d %H:%i:%s') as logged_at 
+            FROM robot_state_history 
+            ORDER BY logged_at DESC LIMIT 100
+        """)
+        return cursor.fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+@app.get("/api/fire-logs")
+def get_fire_logs():
+    """화재 감지 및 이상 징후 이력을 조회합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM fire_incidents ORDER BY occurred_at DESC LIMIT 50")
+        return cursor.fetchall()
+    finally:
+        if 'conn' in locals() and conn.is_connected(): conn.close()
+
+# ==========================================================
+# 8. 서버 실행
+# ==========================================================
+
 if __name__ == '__main__':
+    # 0.0.0.0 포트 5000으로 서버 가동
     uvicorn.run(app, host='0.0.0.0', port=5000)

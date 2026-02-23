@@ -52,7 +52,19 @@ class CameraWidget(QWidget):
         # 픽업 시퀀스 관리
         self.pickup_sequence = PickupSequence()
         self._is_loading_offsets = False
-        self.offset_memory_dir = Path("config") / "pose_memory"
+        
+        # ROS 2 패키지 share 디렉토리 경로 해결 추가
+        config_base = Path("config")
+        if not config_base.exists():
+            try:
+                from ament_index_python.packages import get_package_share_directory
+                share_dir = get_package_share_directory('lovo_gui')
+                if (Path(share_dir) / "config").exists():
+                    config_base = Path(share_dir) / "config"
+            except Exception:
+                pass
+        
+        self.offset_memory_dir = config_base / "pose_memory"
         self.offset_memory_enabled = self.robot_name in self.OFFSET_TARGET_ROBOTS
         
         # 픽업/픽다운 메모리 슬롯 (4개: 상판, 다리, 바퀴, tool박스)

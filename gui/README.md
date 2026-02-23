@@ -91,3 +91,58 @@ Main Server(FastAPI)와 GUI 간의 데이터 연동 기능이 추가되었습니
     *   `_update_dashboard_data()`: 서버에서 주문 및 로봇 상태 정보를 가져와 화면(UI)에 반영하는 로직 구현
     *   **주문 로그** 및 **로봇 상태 그리드** 실시간 연동 기능 추가
 
+## 🌐 GUI 원격 실행 가이드 (다른 컴퓨터에서 실행 시)
+
+GUI를 메인 서버(`192.168.0.30`)가 아닌 다른 컴퓨터(예: `192.168.0.13`)에서 실행할 경우, 아래 설정을 반드시 확인해야 합니다.
+
+### 1. 서버 IP 주소 설정
+*   **파일**: `src/lovo_gui/lovo_gui/config/robotname.json`
+*   **내용**: `server_ip` 값을 실제 메인 서버 주소인 `192.168.0.30`으로 변경합니다.
+    ```json
+    {
+        "server_ip": "192.168.0.30",
+        "server_port": 5000
+    }
+    ```
+
+### 2. ROS 2 도메인 일치 (실시간 데이터 동기화)
+로봇 및 시스템 토픽(기본 Domain 59)을 수신하기 위해 실행 전 터미널 환경 변수를 설정해야 합니다.
+```bash
+export ROS_DOMAIN_ID=59
+# 그 후 GUI 실행
+ros2 run lovo_gui lovo_gui
+```
+
+### 3. 네트워크 접근 권한
+현재 메인 서버(`app.py`)는 모든 외부 IP의 접속(`allow_origins=["*"]`)을 허용하고 있으므로, 같은 네트워크(WIFI/LAN)에 있다면 즉시 통신이 가능합니다.
+
+---
+
+## 🛠️ 도메인 변경 가이드 (Domain 59 → 70 통일 시)
+
+시스템 전체 무전 채널(Domain ID)을 59에서 70으로 변경하려면 **서버 PC**에서 다음 파일들을 수정해야 합니다.
+
+### 1. 도메인 브릿지 설정 ( YAML 파일 수정 )
+로봇 구역의 데이터를 서버 구역(70)으로 넘겨주기 위해 모든 브릿지 YAML의 `to_domain`을 수정해야 합니다.
+*   **파일 목록**: 
+    - `serverfinal/mainserver/config/bridge_robotarm/robotarm1.yaml` (및 2번)
+    - `serverfinal/mainserver/config/bridge_pinky/pinky_1.yaml` (및 2, 3번)
+*   **수정 사항**: `to_domain: 59` → `to_domain: 70`
+
+### 2. GUI 설정 파일 수정
+*   **파일**: `gui/src/lovo_gui/lovo_gui/config/robotname.json`
+*   **수정 사항**: `"server_domain": 59` → `"server_domain": 70`
+
+### 3. 실행 환경 변수 변경 (터미널)
+서버에서 실행되는 모든 모니터링/제어 스크립트 실행 전 환경 변수를 70으로 맞춰야 합니다.
+```bash
+# 모든 모니터링/관제 터미널에서 실행
+export ROS_DOMAIN_ID=70
+
+# 대상 스크립트:
+# - status_robotarm_monitor.py
+# - status_pinky_monitor.py
+# - pinkytrafficmanger.py
+# - robotarmcontrol.py
+```
+

@@ -4,7 +4,7 @@
 -- 1) Customer (Fixed Users)
 -- 2) Material (Inventory Master)
 -- 3) Furniture (Product Configuration)
--- 4) ORDERS (Fixed Test Orders) - Added as per request
+-- 4) ORDERS (Fixed Test Orders)
 -- =========================================================
 
 USE factory_system;
@@ -19,9 +19,9 @@ ON DUPLICATE KEY UPDATE
     phone = VALUES(phone),
     address = VALUES(address);
 
--- Variable setting to be safe (though this is basestructure now)
-SET @admin_id = (SELECT customer_id FROM customer WHERE name='todaylunch' LIMIT 1);
-SET @user_id = (SELECT customer_id FROM customer WHERE name='isperfect' LIMIT 1);
+-- Variable setting
+SET @todaylunch = (SELECT customer_id FROM customer WHERE name='todaylunch' LIMIT 1);
+SET @isperfect = (SELECT customer_id FROM customer WHERE name='isperfect' LIMIT 1);
 
 
 -- =========================================================
@@ -83,29 +83,29 @@ ON DUPLICATE KEY UPDATE
     kit_material_id = VALUES(kit_material_id);
 
 -- =========================================================
--- 4. Orders (주문) - Total 5 Orders (Moved from seed.sql)
+-- 4. Orders (주문) - 5 Orders with mixed status for simulation
 -- =========================================================
--- Order 1
-INSERT INTO orders (customer_id, furniture_id, quantity, status, ordered_at) 
-VALUES (@user_id, 1, 1, 'RECEIVED', DATE_SUB(NOW(), INTERVAL 2 DAY))
+-- Order 1: RECEIVED
+INSERT INTO orders (customer_id, furniture_id, quantity, status, picking_command, packing_command, ordered_at) 
+VALUES (@isperfect, 1, 1, 'RECEIVED', 1.1234, 0.1234, DATE_SUB(NOW(), INTERVAL 2 DAY))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
--- Order 2
-INSERT INTO orders (customer_id, furniture_id, quantity, status, ordered_at) 
-VALUES (@user_id, 9, 2, 'RECEIVED', NOW())
+-- Order 2: RECEIVED
+INSERT INTO orders (customer_id, furniture_id, quantity, status, picking_command, packing_command, ordered_at) 
+VALUES (@isperfect, 9, 2, 'RECEIVED', 2.4507, 0.4507, NOW())
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
--- Order 3
-INSERT INTO orders (customer_id, furniture_id, quantity, status, ordered_at) 
-VALUES (@admin_id, 5, 1, 'RECEIVED', NOW())
+-- Order 3: RECEIVED
+INSERT INTO orders (customer_id, furniture_id, quantity, status, picking_command, packing_command, ordered_at) 
+VALUES (@todaylunch, 5, 1, 'RECEIVED', NULL, NULL, NOW())
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
--- Order 4
-INSERT INTO orders (customer_id, furniture_id, quantity, status, ordered_at) 
-VALUES (@user_id, 11, 1, 'RECEIVED', DATE_SUB(NOW(), INTERVAL 1 DAY))
+-- Order 4: RECEIVED
+INSERT INTO orders (customer_id, furniture_id, quantity, status, picking_command, packing_command, ordered_at) 
+VALUES (@isperfect, 11, 1, 'RECEIVED', NULL, NULL, DATE_SUB(NOW(), INTERVAL 1 DAY))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
--- Order 5
-INSERT INTO orders (customer_id, furniture_id, quantity, status, ordered_at) 
-VALUES (@admin_id, 5, 2, 'RECEIVED', DATE_SUB(NOW(), INTERVAL 1 HOUR))
+-- Order 5: RECEIVED
+INSERT INTO orders (customer_id, furniture_id, quantity, status, picking_command, packing_command, ordered_at) 
+VALUES (@todaylunch, 5, 2, 'RECEIVED', NULL, NULL, DATE_SUB(NOW(), INTERVAL 1 HOUR))
 ON DUPLICATE KEY UPDATE status=VALUES(status);

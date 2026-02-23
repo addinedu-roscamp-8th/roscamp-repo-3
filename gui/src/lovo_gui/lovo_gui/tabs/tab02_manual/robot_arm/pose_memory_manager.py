@@ -14,7 +14,18 @@ class PoseMemoryManager:
             config_dir: 설정 파일 디렉토리 경로
             slot_count: 저장 슬롯 개수 (기본 8)
         """
-        self.pose_memory_dir = Path(config_dir) / "pose_memory"
+        # ROS 2 패키지 share 디렉토리 경로 해결 추가
+        config_base = Path(config_dir)
+        if not config_base.exists():
+            try:
+                from ament_index_python.packages import get_package_share_directory
+                share_dir = get_package_share_directory('lovo_gui')
+                if (Path(share_dir) / config_dir).exists():
+                    config_base = Path(share_dir) / config_dir
+            except Exception:
+                pass
+                
+        self.pose_memory_dir = config_base / "pose_memory"
         self.pose_memory_dir.mkdir(parents=True, exist_ok=True)
         self.slot_count = int(slot_count)
         # logger: optional callable that accepts a single string argument

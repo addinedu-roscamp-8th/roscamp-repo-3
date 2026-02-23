@@ -164,6 +164,14 @@ class MainTab(QWidget):
         self.robot_status_labels = {}  # 로봇 상태 라벨들 저장 {robot_id: {'status': label, 'battery': label, 'work': label}}
         self.robot_fsm_states = {}  # 로봇팔 FSM 상태 저장 {robot_id: state_code}
         
+        # 서버 역할(Role) -> GUI ID 매핑 생성
+        self.role_map = {}
+        for robot in self.robot_settings.get_robots():
+            role = robot.get("role")
+            r_id = robot.get("id")
+            if role and r_id:
+                self.role_map[role] = r_id
+                
         # 로컬 카메라 컨트롤러
         self.local_camera = None
         self.system_map_cam_label = None
@@ -421,46 +429,47 @@ class MainTab(QWidget):
         if orders:
             self._update_order_log(orders)
 
-        # 2. 로봇 상태 갱신
-        robots_status = self.comm_manager.api_client.get_robots()
-        if robots_status:
-            self._update_robot_grid(robots_status)
+        # 2. 로봇 상태 갱신 (서버 API 분리에 따라 각각 호출 후 병합)
+        arms = self.comm_manager.api_client.get_robot_arms()
+        pinkies = self.comm_manager.api_client.get_robot_pinkies()
+        
+        combined_status = arms + pinkies
+        if combined_status:
+            self._update_robot_grid(combined_status)
 
     def _update_robot_grid(self, robots_data):
         """로봇 상태 그리드 갱신"""
-        # robots_data: [{'robot_id': 1, 'action_state': '...', 'battery_percent': 80, ...}]
+        # robots_data: [{'robot_role': 'ARM_1', 'action_state': '...', 'battery_percent': 80, ...}]
         
-        # map API data by string ID if possible, or just iterate
-        # 여기서는 robot_id가 integer라고 가정하고, GUI 설정의 id와 매핑 시도
-        # GUI id가 "robot1" 형식이면 "1" 부분과 매칭하거나, 
-        # 혹은 단순히 순서대로 매칭하거나 해야 함. 
-        # 현재는 DB robot_id와 GUI robot['domain'] 또는 id가 일치한다고 가정하기 어려움.
-        # 따라서 DB에 있는 'robot_kind'나 'role'을 보고 추측하거나,
-        # 단순하게 battery/status만 업데이트.
+        # 서버에서 온 데이터를 역할(role) 기준으로 매핑
+        api_data_by_role = {r.get('robot_role'): r for r in robots_data if r.get('robot_role')}
         
-        # 임시: API 응답의 robot_id를 문자열로 변환하여 GUI id와 매칭 시도
-        api_robot_map = {str(r['robot_id']): r for r in robots_data}
-        
-        for r_id, labels in self.robot_status_labels.items():
-            # GUI id가 'robot1' -> '1'로 변환 시도
-            key = r_id
-            if r_id.startswith('robot'):
-                key = r_id.replace('robot', '')
+        for role, gui_id in self.role_map.items():
+            labels = self.robot_status_labels.get(gui_id)
+            if not labels:
+                continue
             
-            data = api_robot_map.get(key)
+            data = api_data_by_role.get(role)
             if data:
-                # 배터리
-                bat = data.get('battery_percent', 0)
-                labels['battery'].setText(f"{bat}%")
+                # 배터리 (로봇팔 등은 배터리 정보가 없을 수 있음)
+                bat = data.get('battery_percent')
+                if bat is not None:
+                    labels['battery'].setText(f"{bat}%")
+                else:
+                    labels['battery'].setText("-")
                 
                 # 로봇 하는일 텍스트
                 work = data.get('action_state', '업무 대기')
                 labels['work'].setText(work)
                 
-                # 연결 표시 (데이터가 들어오면 온라인으로 간주)
-                # 하지만 로봇 직접 연결(Ping)과 서버 DB상 상태는 다를 수 있음
-                # 여기서는 DB 상태를 우선시하거나, Ping 상태와 병기해야 함.
-                # 우선은 배터리와 상태 텍스트만 업데이트.
+                # 통신 연결 상태 (데이터가 들어오면 서버 통신 상으로는 Online)
+                # 여기서는 'Online' 문구 보다는 데이터 갱신 여부 위주로 표시
+                # labels['status'] 연동은 ROS 직접 연결(Ping)과 섞여 있으므로 
+                # 데이터 유무에 따른 보조적 표시만 권장함.
+                # (현 상태 유지)
+            else:
+                # 해당 역할을 가진 로봇 정보가 서버 데이터에 없으면 "정지/알수없음" 등으로 표시 가능
+                pass
 
     def _update_order_log(self, orders):
         """주문 로그 뷰어 업데이트"""

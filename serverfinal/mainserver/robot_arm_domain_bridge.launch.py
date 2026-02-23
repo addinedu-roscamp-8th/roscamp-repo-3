@@ -2,21 +2,22 @@ import os
 import glob
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import SetEnvironmentVariable
+from launch.actions import SetEnvironmentVariable, ExecuteProcess
 
 def generate_launch_description():
-    # 1. 기본 경로 설정 (mainserver까지)
-    # ~/Desktop/roscamp-repo-3/serverfinal/mainserver
-    main_server_path = os.path.join(
+    # 1. 경로 설정
+    # ~/Desktop/lovo/serverfinal/mainserver
+    base_path = os.path.join(
         os.path.expanduser('~'), 
         'Desktop', 
-        'roscamp-repo-3', 
+        'lovo', 
         'serverfinal', 
         'mainserver'
     )
 
+
     # 2. 설정 파일 폴더 경로 (mainserver/config/bridge_robotarm)
-    config_dir = os.path.join(main_server_path, 'config', 'bridge_robotarm')
+    config_dir = os.path.join(base_path, 'config', 'bridge_robotarm')
 
     launch_actions = [
         # ROS_DOMAIN_ID를 59로 설정 (관제 PC와 통신용)
@@ -27,7 +28,6 @@ def generate_launch_description():
     yaml_files = glob.glob(os.path.join(config_dir, '*.yaml'))
     
     if not yaml_files:
-        # 경로가 맞는지 터미널에 출력해서 확인용
         print(f"⚠️ Warning: No YAML files found in {config_dir}")
 
     for yaml_file in yaml_files:
@@ -43,5 +43,14 @@ def generate_launch_description():
                 output='screen'
             )
         )
+    
+    # 4. 로컬 상태 모니터링 실행 (대시보드)
+    launch_actions.append(
+        ExecuteProcess(
+            cmd=['python3', os.path.join(base_path, 'status_robotarm_monitor.py')],
+            output='screen',
+            emulate_tty=True
+        )
+    )
     
     return LaunchDescription(launch_actions)

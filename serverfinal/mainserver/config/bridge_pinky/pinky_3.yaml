@@ -19,5 +19,11 @@ topics:
     from_domain: 53
     to_domain: 59
     remap: /pinky3/battery/present
-  
-  
+
+
+  /taskzone_arr:
+    type: std_msgs/msg/String
+    from_domain: 53
+    to_domain: 59
+    remap: /pinky3/taskzone_arr
+

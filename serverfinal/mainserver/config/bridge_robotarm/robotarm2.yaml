@@ -1,15 +1,51 @@
-name: packing_arm_bridge
+name: packing_arm2_bridge
 topics:
   # --- [명령] 서버(59) -> 로봇(61) ---
   /robot2/order_command:
+    type: std_msgs/msg/Float64
     from_domain: 59
     to_domain: 61
     remap: /order_command
-    type: std_msgs/msg/Float64
+
+  /robot2/PTP_gripper_command:
+    type: std_msgs/msg/Int32
+    from_domain: 59
+    to_domain: 61
+    remap: /PTP_gripper_command
+
+  /robot2/PTP_servo_status:
+    type: std_msgs/msg/Bool
+    from_domain: 59
+    to_domain: 61
+    remap: /PTP_servo_status
+
+  /robot2/PTP_goal_pose:
+    type: std_msgs/msg/Float64MultiArray
+    from_domain: 59
+    to_domain: 61
+    remap: /PTP_goal_pose
+
+  # /robot2/PTP_capture_image_with_command/compressed:
+  #   type: lovo_interfaces/msg/CaptureImageWithCommand
+  #   from_domain: 59
+  #   to_domain: 61
+  #   remap: /PTP_capture_image_with_command/compressed
 
   # --- [상태] 로봇(61) -> 서버(59) ---
   /robot_state:
+    type: std_msgs/msg/Int8
     from_domain: 61
     to_domain: 59
     remap: /robot2/robot_state
-    type: std_msgs/msg/Int8
+
+  /joint_states:
+    type: sensor_msgs/msg/JointState
+    from_domain: 61
+    to_domain: 59
+    remap: /robot2/joint_states
+
+  /PTP_tcp_pose:
+    type: std_msgs/msg/Float64MultiArray
+    from_domain: 61
+    to_domain: 59
+    remap: /robot2/PTP_tcp_pose

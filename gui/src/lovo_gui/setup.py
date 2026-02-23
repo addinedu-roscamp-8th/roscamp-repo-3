@@ -12,7 +12,8 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/config', ['lovo_gui/config/domain_bridge_config.yaml']),
+        ('share/' + package_name + '/config', glob('lovo_gui/config/*.yaml') + glob('lovo_gui/config/*.json')),
+        ('share/' + package_name + '/config/pose_memory', glob('lovo_gui/config/pose_memory/*.json')),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
     package_data={

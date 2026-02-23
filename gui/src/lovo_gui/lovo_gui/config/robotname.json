@@ -1,33 +1,38 @@
 {
-    "server_domain": 70,
+    "server_domain": 59,
     "robots": [
         {
+            "role": "ARM_1",
             "name": "상차 로봇팔",
             "domain": 60,
-            "id": "jecobot_126b",
+            "id": "jekobot_126b",
             "ip": "192.168.0.60"
         },
         {
+            "role": "ARM_2",
             "name": "하차 로봇팔",
             "domain": 61,
-            "id": "jecobot_aab4",
+            "id": "jekobot_aab4",
             "ip": "192.168.0.61"
         },
         {
+            "role": "PINKY_1",
             "name": "운송 로봇 1",
-            "domain": 52,
+            "domain": 51,
             "id": "d9ec",
             "ip": "192.168.0.31"
         },
         {
+            "role": "PINKY_2",
             "name": "운송 로봇 2",
-            "domain": 51,
+            "domain": 52,
             "id": "20f0",
             "ip": "192.168.0.48"
         },
         {
-            "name": "청소 로봇",
-            "domain": 50,
+            "role": "PINKY_3",
+            "name": "운송 로봇 3",
+            "domain": 53,
             "id": "dfc6",
             "ip": "192.168.0.44"
         }

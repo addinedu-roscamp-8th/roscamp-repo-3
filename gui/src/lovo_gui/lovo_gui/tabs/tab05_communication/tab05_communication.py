@@ -295,7 +295,7 @@ class CommunicationTab(QWidget):
         
         self.conn_table.setItem(0, 2, QTableWidgetItem(str(server_domain)))
         
-        server_ip = QLineEdit("192.168.0.70")
+        server_ip = QLineEdit("192.168.0.30")
         server_ip.setStyleSheet("color: black; border: none; background: transparent;")
         server_ip.editingFinished.connect(lambda: self._save_server_ip(server_ip.text()))
         self.conn_table.setCellWidget(0, 3, server_ip)

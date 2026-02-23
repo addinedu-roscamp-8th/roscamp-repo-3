@@ -10,7 +10,7 @@ class APIClient(QObject):
     Main Server와 통신하는 API 클라이언트
     """
     
-    def __init__(self, base_url="http://192.168.0.30:4000", timeout=2.0):
+    def __init__(self, base_url="http://192.168.0.30:5000", timeout=2.0):
         super().__init__()
         self.base_url = base_url.rstrip('/')
         self.timeout = timeout
@@ -61,13 +61,33 @@ class APIClient(QObject):
         return []
         
     def get_robots(self):
-        """로봇 상태 조회"""
+        """로봇 상태 조회 (통합)"""
         try:
             response = requests.get(f"{self.base_url}/api/robots", timeout=self.timeout)
             if response.status_code == 200:
                 return response.json()
         except Exception as e:
             print(f"Error fetching robots: {e}")
+        return []
+
+    def get_robot_arms(self):
+        """로봇팔 상태 조회"""
+        try:
+            response = requests.get(f"{self.base_url}/api/robots/arms", timeout=self.timeout)
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            print(f"Error fetching robot arms: {e}")
+        return []
+
+    def get_robot_pinkies(self):
+        """운송 로봇 상태 조회"""
+        try:
+            response = requests.get(f"{self.base_url}/api/robots/pinkies", timeout=self.timeout)
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            print(f"Error fetching robot pinkies: {e}")
         return []
 
     def create_order(self, order_data):

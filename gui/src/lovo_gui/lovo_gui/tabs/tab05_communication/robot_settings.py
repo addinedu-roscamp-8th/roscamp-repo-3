@@ -12,6 +12,17 @@ class RobotSettings:
     """robotname.json 설정 파일 관리"""
     
     def __init__(self, config_path="config/robotname.json"):
+        # ROS 2 패키지 share 디렉토리 경로 해결 추가
+        if not os.path.exists(config_path):
+            try:
+                from ament_index_python.packages import get_package_share_directory
+                share_dir = get_package_share_directory('lovo_gui')
+                resolved_path = os.path.join(share_dir, 'config', os.path.basename(config_path))
+                if os.path.exists(resolved_path):
+                    config_path = resolved_path
+            except Exception:
+                pass
+                
         self.config_path = config_path
         self.config = {}
         self.load()
