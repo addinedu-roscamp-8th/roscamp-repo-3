@@ -170,11 +170,16 @@ class PickPlaceHandler:
                     self.node.get_logger().warn(f"⚠️ Failed to move to standby position")
             
             self.node.get_logger().info(f"\n🎉 All tasks completed!")
+            self.node.set_robot_state(3)  # Change to SUCCESS
             
         except Exception as e:
             self.node.get_logger().error(f"❌ Error: {e}")
+            self.node.set_robot_state(4)  # Change to ERROR
         finally:
             self._is_processing = False
+            # Return to IDLE after 2 seconds
+            time.sleep(2.0)
+            self.node.set_robot_state(1)  # Return to IDLE
 
     def _execute_packing_sequence(self, place_id: int, pick_ids: list, packing_poses_datamap: dict):
         """Execute packing sequence when place_id is 0"""
@@ -255,8 +260,16 @@ class PickPlaceHandler:
 
         except Exception as e:
             self.node.get_logger().error(f"❌ Error in packing sequence: {e}")
+            self.node.set_robot_state(4)  # Change to ERROR
         finally:
             self._is_processing = False
+            # Change to SUCCESS if no error occurred
+            if self.node.robot_state != 4:  # Only if not ERROR
+                self.node.get_logger().info(f"\n🎉 Packing sequence completed!")
+                self.node.set_robot_state(3)  # Change to SUCCESS
+                # Return to IDLE after 2 seconds
+                time.sleep(2.0)
+                self.node.set_robot_state(1)  # Return to IDLE
     
     # ==================== Move Function ====================
     

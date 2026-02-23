@@ -58,8 +58,11 @@ class JetCobotPC(Node):
         # ====== Timers ======
         self.create_timer(0.1 / self.pose_rate, self.publish_tcp_pose)
         self.create_timer(0.1, self._process_state_machine)
+        self.create_timer(1.0, self._publish_robot_status)  # Publish robot status every 1 second
+        
         # ====== State Variables ======
         self._last_tcp_pose = None  # (x_cm, y_cm, z_cm, roll_deg, pitch_deg, yaw_deg)
+        self.robot_state = 1  # 0=INIT, 1=IDLE, 2=BUSY, 3=SUCCESS, 4=ERROR
         os.makedirs(self.capture_save_dir, exist_ok=True)
         
         self.get_logger().info("✅ jetcobot_PC node started successfully")
@@ -230,6 +233,8 @@ class JetCobotPC(Node):
 
     def receipt_list_cb(self, msg: Float64):
         """Forward order command to pick & place handler"""
+        self.robot_state = 2  # Change to BUSY when receipt received
+        self.get_logger().info(f"🔄 State changed to BUSY")
         self.pickup_handler.receipt_list_cb(msg)
         
         
@@ -453,6 +458,24 @@ class JetCobotPC(Node):
     def _process_state_machine(self):
         """Process state machine periodically"""
         self.state_machine.process()
+    
+    def _publish_robot_status(self):
+        """Publish robot status every 1 second"""
+        status_msg = Int8()
+        status_msg.data = self.robot_state
+        self.robot_status_pub.publish(status_msg)
+        
+        # Log status
+        status_names = {0: "INIT", 1: "IDLE", 2: "BUSY", 3: "SUCCESS", 4: "ERROR"}
+        status_name = status_names.get(self.robot_state, "UNKNOWN")
+        self.get_logger().debug(f"📊 Robot Status: {status_name} ({self.robot_state})")
+    
+    def set_robot_state(self, state: int):
+        """Set robot state and log the change"""
+        state_names = {0: "INIT", 1: "IDLE", 2: "BUSY", 3: "SUCCESS", 4: "ERROR"}
+        state_name = state_names.get(state, "UNKNOWN")
+        self.get_logger().info(f"📋 State changed: {state_name} ({state})")
+        self.robot_state = state
     # =================== Service Call for Image Capture ====================
     def request_image_capture(self):
         """
