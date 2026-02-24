@@ -32,9 +32,9 @@ class PickPlaceHandler:
         
         # Configurable delays (seconds)
         self.position_check_delay = 0.1  # Delay between position checks during movement
-        self.image_capture_delay = 1.0   # Delay before capturing image to stabilize robot
-        self.second_place_delay = 1.0    # Delay before executing second place with saved data
-        self.before_move_delay = 1.0
+        self.image_capture_delay = 2.0   # Delay before capturing image to stabilize robot
+        self.second_place_delay = 1.2    # Delay before executing second place with saved data
+        self.before_move_delay = 1.2
     ## ==================== Receipt Processing =====================
     # /receipt_command 토픽에서 Float64 메시지를 수신하여 영수증을 처리하는 콜백 함수
     def receipt_list_cb(self, msg: Float64):
@@ -114,7 +114,7 @@ class PickPlaceHandler:
         
         gripper_msg = Int32()
         gripper_msg.data = 100  # Open gripper at the start of the sequence
-        self.gripper_pub.publish(gripper_msg)
+        self.node.gripper_pub.publish(gripper_msg)
         
         try:
             for idx, pick_id in enumerate(pick_ids):
@@ -122,6 +122,9 @@ class PickPlaceHandler:
                 self.node.get_logger().info(f"🔄 Pick & Place {idx+1}/{len(pick_ids)}: {pick_id} → {place_id}")
                 self.node.get_logger().info(f"{'='*60}")
                 
+                gripper_msg = Int32()
+                gripper_msg.data = 100  # Open gripper at the start of the sequence
+                self.node.gripper_pub.publish(gripper_msg)
                 # ========== PICK PHASE ==========
                 self.node.get_logger().info(f"\n📦 PICK Phase (ID {pick_id})")
                 
@@ -192,7 +195,7 @@ class PickPlaceHandler:
 
         gripper_msg = Int32()
         gripper_msg.data = 100  # Open gripper at the start of the sequence
-        self.gripper_pub.publish(gripper_msg)
+        self.node.gripper_pub.publish(gripper_msg)
         
         try:
             for idx, pick_id in enumerate(pick_ids):
@@ -201,6 +204,9 @@ class PickPlaceHandler:
                 self.node.get_logger().info(f"\n{'='*60}")
                 self.node.get_logger().info(f"📦 PACKING Pick Phase {idx+1}/{len(pick_ids)}: ID {pick_id}")
                 self.node.get_logger().info(f"{'='*60}")
+                gripper_msg = Int32()
+                gripper_msg.data = 100  # Open gripper at the start of the sequence
+                self.node.gripper_pub.publish(gripper_msg)
 
                 time.sleep(self.before_move_delay)
 
