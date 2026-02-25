@@ -88,7 +88,7 @@ class CommunicationTab(QWidget):
                     self.controller_threads.append(thread)
                 
                 self.controller_executors['main_executor'].add_node(controller)
-                self.comm_manager.log(f"{robot_name} ROS2 컨트롤러 초기화 완료 (Domain 70, Robot Domain: {robot_domain})")
+                self.comm_manager.log(f"{robot_name} ROS2 컨트롤러 초기화 완료 (Domain 59, Robot Domain: {robot_domain})")
             
             # 모든 로봇에 CameraController 생성 (UDP 포트: 9510, 9520, 9530, 9540, 9550)
             camera_port = 9510 + (idx * 10)
