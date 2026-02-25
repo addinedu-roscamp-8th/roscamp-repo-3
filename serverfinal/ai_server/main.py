@@ -16,14 +16,18 @@ from coord_transform import load_map_base_transforms, pixel_to_map, map_to_base
 from gui_alert_overlay import GuiAlertOverlay
 
 # --- Configuration ---
+# --- Configuration ---
 MAIN_SERVER_IP = "10.182.25.77"
 MAIN_SERVER_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/coordinates"
 MAIN_SERVER_EVENT_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/event-log"
-USB_CAMERA_INDEX = 0 # Default USB Camera
-EVENT_IMAGE_DIR = Path(__file__).resolve().parent / "event_logs" / "images"
-EVENT_LOG_FILE = Path(__file__).resolve().parent / "event_logs" / "events.jsonl"
-GUI_PC_IP = "192.168.0.13"
-GUI_UDP_PORT = 5930
+USB_CAMERA_INDEX = 0 
+GUI_PC_IP = "127.0.0.1" # AI서버와 GUI가 같은 컴2이므로 localhost
+
+# GUI가 받을 포트들 정의
+GUI_PORT_USB_RAW = 5930     # USB 원본
+GUI_PORT_COMP1_RAW = 5940   # 컴1 원본
+GUI_PORT_COMP1_OVERLAY = 5950 # 컴1 가공(Overlay)
+
 GUI_JPEG_QUALITY = 70
 GUI_FIRE_TRIGGER_LABELS = {"fire"}
 GUI_EXTINGUISH_TRIGGER_LABELS = {"ashes", "ash"}
@@ -43,9 +47,8 @@ app = FastAPI(title="LOVO Multi-Robot AI Analysis Server")
 
 # --- Model & Robot Configuration ---
 ROBOT_CONFIG = {
-    "robot1": {"port": 9511, "obs_port": 9512, "name": "상차 로봇"},
-    "robot2": {"port": 9521, "obs_port": 9522, "name": "하차 로봇"},
-    "local":  {"port": None, "obs_port": None, "name": "USB 카메라 로봇"},
+    "robot1": {"port": 9510, "obs_port": 9512, "name": "컴1 영상(네트워크)"},
+    "local":  {"port": None, "obs_port": None, "name": "컴2 영상(USB)"},
 }
 
 # --- State Management ---
@@ -144,20 +147,27 @@ def _apply_local_camera_adjustments(frame: np.ndarray) -> np.ndarray:
 
 # --- UDP Receiver Task ---
 def udp_receiver_task(robot_state: RobotState):
-    """Independent UDP Receiver for each robot port."""
+    """Independent UDP Receiver. Also forwards RAW frame to GUI."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+    gui_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # GUI 전송용
+
     try:
         sock.bind(("0.0.0.0", robot_state.port))
         sock.settimeout(1.0)
-        logging.debug(f"Receiver started for {robot_state.robot_id} on port {robot_state.port}")
+        logging.info(f"Receiver started for {robot_state.robot_id} on port {robot_state.port}")
     except Exception as e:
-        logging.debug(f"Error binding port {robot_state.port} for {robot_state.robot_id}: {e}")
+        logging.error(f"Error binding port {robot_state.port}: {e}")
         return
 
     while True:
         try:
             data, addr = sock.recvfrom(65507)
+            # 1. 받은 그대로 GUI에 즉시 토스 (컴1 원본)
+            if robot_state.robot_id == "robot1":
+                gui_sock.sendto(data, (GUI_PC_IP, GUI_PORT_COMP1_RAW))
+
             nparr = np.frombuffer(data, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
@@ -166,8 +176,6 @@ def udp_receiver_task(robot_state: RobotState):
                     robot_state.latest_frame = frame
                     robot_state.last_addr = addr[0]
                     robot_state.height, robot_state.width = frame.shape[:2]
-                    if robot_state.is_udp_source:
-                        event_logger.on_frame_received(robot_state.robot_id, time.time())
                 robot_state.update_receive_stats()
         except socket.timeout:
             continue
@@ -196,23 +204,13 @@ def usb_camera_task(robot_state: RobotState):
             robot_state.latest_frame = frame
             robot_state.height, robot_state.width = frame.shape[:2]
 
+        # GUI로 원본 전송 (컴2 USB -> GUI)
         try:
-            gui_frame = gui_alert_overlay.apply_overlay(frame.copy(), time.time())
-            ok, jpeg = cv2.imencode(
-                ".jpg",
-                gui_frame,
-                [int(cv2.IMWRITE_JPEG_QUALITY), GUI_JPEG_QUALITY],
-            )
+            ok, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), GUI_JPEG_QUALITY])
             if ok:
-                payload = jpeg.tobytes()
-                if len(payload) <= 65507:
-                    gui_sock.sendto(payload, (GUI_PC_IP, GUI_UDP_PORT))
-                else:
-                    logging.debug(
-                        f"GUI stream frame too large for UDP datagram: {len(payload)} bytes"
-                    )
+                gui_sock.sendto(jpeg.tobytes(), (GUI_PC_IP, GUI_PORT_USB_RAW))
         except Exception as e:
-            logging.debug(f"GUI UDP stream error: {e}")
+            logging.debug(f"USB GUI RAW stream error: {e}")
         
         robot_state.update_receive_stats()
         # Small sleep to prevent high CPU usage if camera has high FPS
@@ -388,9 +386,18 @@ def inference_worker_task():
                     logging.debug(f"Inference Error on {robot_id}: {e}")
                     processed_frame = frame_to_process.copy()
 
+                # [추가] 가공된 영상(Overlay)을 GUI 전송 (컴1 가공본 전용)
+                if robot_id == "robot1" and processed_frame is not None:
+                    try:
+                        ok, jpeg = cv2.imencode(".jpg", processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), GUI_JPEG_QUALITY])
+                        if ok:
+                            broadcast_sock.sendto(jpeg.tobytes(), (GUI_PC_IP, GUI_PORT_COMP1_OVERLAY))
+                    except Exception as e:
+                        logging.debug(f"Overlay Stream Error: {e}")
+
                 with state.lock:
                     state.processed_frame = processed_frame
-                    state.inference_result = obs_msg # Store the full observation
+                    state.inference_result = obs_msg 
                 
                 state.inference_count += 1
                 state.latency_ms = (time.time() - start_time) * 1000
