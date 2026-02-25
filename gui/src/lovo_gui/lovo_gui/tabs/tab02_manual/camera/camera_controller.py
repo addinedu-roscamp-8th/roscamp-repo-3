@@ -71,18 +71,24 @@ class CameraController(QObject):
         """Publish image + command to the with-command test topic."""
         rc = robot_controller or self.robot_controller
         if rc is None:
-            print("⚠️ ROS publisher not available (no robot_controller provided)")
+            print("❌ ROS publisher not available (no robot_controller provided)")
+            print(f"   - robot_controller param: {robot_controller}")
+            print(f"   - self.robot_controller: {self.robot_controller}")
             return False
 
         pub = None
         try:
             pub = rc.get_publisher('PTP_capture_image_with_command_compressed')
+            print(f"✅ Publisher retrieved: {pub}")
         except Exception as e:
-            print(f"publish_frame_with_command_ros: get_publisher raised: {e}")
+            print(f"❌ get_publisher raised exception: {e}")
+            import traceback
+            traceback.print_exc()
             pub = None
 
         if pub is None:
-            print("⚠️ PTP_capture_image_with_command_compressed publisher not found in robot controller")
+            print("❌ PTP_capture_image_with_command_compressed publisher not found in robot controller")
+            print(f"   Available publishers: {list(rc._topic_publishers.keys()) if hasattr(rc, '_topic_publishers') else 'N/A'}")
             return False
 
         try:

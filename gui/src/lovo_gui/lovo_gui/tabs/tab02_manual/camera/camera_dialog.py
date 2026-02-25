@@ -67,9 +67,9 @@ class CameraWidget(QWidget):
         self.offset_memory_dir = config_base / "pose_memory"
         self.offset_memory_enabled = self.robot_name in self.OFFSET_TARGET_ROBOTS
         
-        # 픽업/픽다운 메모리 슬롯 (4개: 상판, 다리, 바퀴, tool박스)
-        self.slot_count = 4
-        self.slot_labels = {1: "상판", 2: "다리", 3: "바퀴", 4: "tool박스"}
+        # 픽업/픽다운 메모리 슬롯 (5개: 상판, 다리, 바퀴, tool박스, 큰박스)
+        self.slot_count = 5
+        self.slot_labels = {1: "상판", 2: "다리", 3: "바퀴", 4: "tool박스", 5: "큰박스"}
         self.current_slot = 1  # 기본 슬롯: 1 (상판)
         self.pickup_memory = {i: {"x": 0.0, "y": 0.0, "z": 0.0, "z_lift": 0.0} for i in range(1, self.slot_count + 1)}
         self.pickdown_memory = {i: {"x": 0.0, "y": 0.0, "z": 0.0, "z_lift": 0.0} for i in range(1, self.slot_count + 1)}
@@ -518,8 +518,17 @@ class CameraWidget(QWidget):
 
             # CameraController의 with-command ROS 발행 함수 사용
             if hasattr(self.camera_controller, 'publish_frame_with_command_ros'):
+                # robot_controller 명시적으로 전달
+                robot_controller = None
+                if self.robot_dashboard and hasattr(self.robot_dashboard, 'controller'):
+                    robot_controller = self.robot_dashboard.controller
+                    print(f"🤖 Robot controller found: {robot_controller}")
+                else:
+                    print("⚠️ Robot dashboard or controller not available")
+                
                 published = self.camera_controller.publish_frame_with_command_ros(
-                    jpg_bytes, command_value=command_value, offsets=offsets
+                    jpg_bytes, command_value=command_value, offsets=offsets, 
+                    robot_controller=robot_controller
                 )
                 if published:
                     msg = (
@@ -529,7 +538,10 @@ class CameraWidget(QWidget):
                     print(msg)
                     self.work_log_signal.emit(msg)
                     return
-                print("⚠️ publish_frame_with_command_ros 전송 실패, 파일 저장으로 대체")
+                else:
+                    error_msg = "⚠️ publish_frame_with_command_ros 전송 실패, 파일 저장으로 대체"
+                    print(error_msg)
+                    self.work_log_signal.emit(error_msg)
 
             # 대체 동작: 파일 저장
             home_dir = Path.home()

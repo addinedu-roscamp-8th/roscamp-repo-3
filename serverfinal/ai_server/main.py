@@ -16,7 +16,7 @@ from coord_transform import load_map_base_transforms, pixel_to_map, map_to_base
 from gui_alert_overlay import GuiAlertOverlay
 
 # --- Configuration ---
-MAIN_SERVER_IP = "192.168.0.30"
+MAIN_SERVER_IP = "10.182.25.77"
 MAIN_SERVER_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/coordinates"
 MAIN_SERVER_EVENT_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/event-log"
 USB_CAMERA_INDEX = 0 # Default USB Camera

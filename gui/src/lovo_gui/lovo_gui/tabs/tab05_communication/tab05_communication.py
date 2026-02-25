@@ -50,8 +50,8 @@ class CommunicationTab(QWidget):
             robot_id = robot.get("id")
             robot_name = robot.get("name")
             robot_domain = robot.get("domain")
+        #    robot_ip = robot.get("ip", "10.182.25.77")
             robot_ip = robot.get("ip", "127.0.0.1")
-            
             # 로봇팔 도메인 (60, 61)만 RobotArmController 생성
             if robot_domain in [60, 61]:  # 상차(60), 하차(61) 모두 활성화
                 # 모든 컨트롤러를 설정 파일의 server_domain에서 실행

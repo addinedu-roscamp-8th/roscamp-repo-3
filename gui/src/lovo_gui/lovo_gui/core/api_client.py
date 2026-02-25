@@ -10,7 +10,8 @@ class APIClient(QObject):
     Main Server와 통신하는 API 클라이언트
     """
     
-    def __init__(self, base_url="http://192.168.0.30:5000", timeout=2.0):
+    def __init__(self, base_url="http://10.182.25.77:5000", timeout=2.0):
+#    def __init__(self, base_url="http://192.168.0.30:5000", timeout=2.0):
         super().__init__()
         self.base_url = base_url.rstrip('/')
         self.timeout = timeout
