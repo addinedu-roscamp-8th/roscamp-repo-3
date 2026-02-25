@@ -3,15 +3,7 @@ from rclpy.node import Node
 from std_msgs.msg import String, Float64, Int8, Float64MultiArray
 import os
 import datetime
-import mysql.connector
-
-# DB 설정
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'lovoDB',
-    'password': 'LovoDB1234!',
-    'database': 'factory_system'
-}
+from db_manager import db
 
 class RobotArmMonitor(Node):
     def __init__(self):
@@ -69,11 +61,7 @@ class RobotArmMonitor(Node):
         self.get_logger().info("🦾 [Robot Arm Monitor] Monitoring started...")
 
     def get_db_connection(self):
-        try:
-            return mysql.connector.connect(**DB_CONFIG)
-        except Exception as e:
-            self.get_logger().error(f"DB 연결 실패: {e}")
-            return None
+        return db.get_connection()
 
     def update_db(self, arm):
         conn = self.get_db_connection()

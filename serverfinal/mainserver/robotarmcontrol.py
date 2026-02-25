@@ -1,8 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64, Int8, String
-import mysql.connector
-from mysql.connector import Error
+from db_manager import db
 
 class RobotArmController(Node):
     def __init__(self):
@@ -17,101 +16,126 @@ class RobotArmController(Node):
         self.pub_r2_order = self.create_publisher(Float64, '/robot2/order_command', 10)
         self.sub_r2_state = self.create_subscription(Int8, '/robot2/robot_state', self.r2_callback, 10)
 
-        # ---- [2. 핑키 로봇 구역 도착 신호 구독] ----
-        self.create_subscription(String, '/pinky1/taskzone_arr', lambda msg: self.zone_callback('PINKY_1', msg), 10)
-        self.create_subscription(String, '/pinky2/taskzone_arr', lambda msg: self.zone_callback('PINKY_2', msg), 10)
-        self.create_subscription(String, '/pinky3/taskzone_arr', lambda msg: self.zone_callback('PINKY_3', msg), 10)
-        
-        # 핑키 상태(State) 구독 (모니터링용)
-        self.create_subscription(Int8, '/pinky1/state', lambda msg: self.p_callback(msg, 0), 10)
-        self.create_subscription(Int8, '/pinky2/state', lambda msg: self.p_callback(msg, 1), 10)
-        self.create_subscription(Int8, '/pinky3/state', lambda msg: self.p_callback(msg, 2), 10)
-
-        # ---- [3. 설정 및 데이터] ----
-        self.db_config = {
-            'host': 'localhost',
-            'user': 'lovoDB',
-            'password': 'LovoDB1234!',
-            'database': 'factory_system'
-        }
-        
-        self.p_states = [0, 0, 0]   # 핑키 1, 2, 3 정적 상태
+        # ---- [3. 전역 관리 데이터] ----
         self.r_states = [1, 1]     # 로봇 1, 2 상태 (1: IDLE)
         
-        self.get_logger().info(" 🦾 [메인 서버] 로봇팔 통합 제어 노드 가동 (Event-Driven Mode)")
+        # 현재 각 구역에서 작업 중인 핑키 ID 기억 (신호 전송용)
+        self.active_pinkies = {
+            'picking': None, # e.g., 'PINKY_1'
+            'packing': None
+        }
+
+        # ---- [4. 핑키 전용 응답 퍼블리셔 (명령 하달용)] ----
+        # [수정] YAML 변경에 맞춰 토픽 경로 수정 (/pinkyX/arm_done -> /pinkyX/arm_working/done)
+        self.done_pubs = {
+            'PINKY_1': self.create_publisher(String, '/pinky1/arm_working/done', 10),
+            'PINKY_2': self.create_publisher(String, '/pinky2/arm_working/done', 10),
+            'PINKY_3': self.create_publisher(String, '/pinky3/arm_working/done', 10)
+        }
+        
+        # ---- [5. 핑키 구역 진입 구독자 (수정: /pinkyX/task_zone/arrived)] ----
+        self.create_subscription(String, '/pinky1/task_zone/arrived', lambda msg: self.zone_callback('PINKY_1', msg), 10)
+        self.create_subscription(String, '/pinky2/task_zone/arrived', lambda msg: self.zone_callback('PINKY_2', msg), 10)
+        self.create_subscription(String, '/pinky3/task_zone/arrived', lambda msg: self.zone_callback('PINKY_3', msg), 10)
+
+        self.get_logger().info(" 🦾 [Main Server] Robot Arm Collaborative Controller Active")
+        self.get_logger().info(" 📡 Listening for 'PICK_READY' and 'PACK_READY' on /pinkyX/task_zone/arrived")
 
     # =============== DB 연동 함수 ===============
     def get_db_connection(self):
-        try:
-            return mysql.connector.connect(**self.db_config)
-        except Error as e:
-            self.get_logger().error(f"DB 연결 실패: {e}")
-            return None
+        return db.get_connection()
 
     # =============== Callback 함수 ===============
-    def p_callback(self, msg, idx):
-        self.p_states[idx] = msg.data
-
     def r1_callback(self, msg):
+        # 로봇팔 1(Picking)이 SUCCESS(3)로 바뀌는 순간 감지
+        if self.r_states[0] != 3 and msg.data == 3:
+            pinky_role = self.active_pinkies['picking']
+            if pinky_role and pinky_role in self.done_pubs:
+                done_msg = String()
+                # [수정] 메시지 데이터 규격화 (대문자)
+                done_msg.data = "PICK_DONE"
+                self.done_pubs[pinky_role].publish(done_msg)
+                self.get_logger().info(f"✅ [Picking Arm] Work Complete! Sent 'PICK_DONE' to {pinky_role}")
+                self.active_pinkies['picking'] = None 
+
         self.r_states[0] = msg.data
 
     def r2_callback(self, msg):
+        # 로봇팔 2(Packing)이 SUCCESS(3)로 바뀌는 순간 감지
+        if self.r_states[1] != 3 and msg.data == 3:
+            pinky_role = self.active_pinkies['packing']
+            if pinky_role and pinky_role in self.done_pubs:
+                done_msg = String()
+                # [수정] 메시지 데이터 규격화 (대문자)
+                done_msg.data = "PACK_DONE"
+                self.done_pubs[pinky_role].publish(done_msg)
+                self.get_logger().info(f"✅ [Packing Arm] Work Complete! Sent 'PACK_DONE' to {pinky_role}")
+                self.active_pinkies['packing'] = None 
+
         self.r_states[1] = msg.data 
 
     def zone_callback(self, pinky_role, msg):
-        """핑키로부터 구역 도착 신호를 받았을 때 수행하는 핵심 로직"""
+        """핑키로부터 구역 도착 신호(Ready)를 받았을 때 수행하는 핵심 협업 로직"""
+        # [수정] 하위 호환성을 위해 소문자도 체크하지만 기본적으로 대문자 기반 동작
         event = msg.data.lower()
-        self.get_logger().info(f"🚩 [구역 감지] {pinky_role} -> {event} 도착")
-
-        conn = self.get_db_connection()
-        if not conn: return
-
-        try:
-            cursor = conn.cursor(dictionary=True)
+        self.get_logger().info(f"🚩 [Zone Event] {pinky_role} reported '{msg.data}'")
+        
+        # 1. 핑키 정보 기록 및 DB 조회를 위한 데이터 준비
+        if "pick_ready" in event or "pickingready" in event:
+            self.active_pinkies['picking'] = pinky_role
+        elif "pack_ready" in event or "packingready" in event:
+            self.active_pinkies['packing'] = pinky_role
+        else:
+            return  # 알 수 없는 신호는 무시
             
-            # 1. 해당 핑키가 지금 어떤 주문을 가지고 있는지 확인
+        conn = None
+        cursor = None
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            # 2. 해당 핑키가 지금 어떤 주문을 가지고 있는지 DB 조회
             cursor.execute("SELECT current_order_id FROM robot_pinky WHERE robot_role = %s", (pinky_role,))
             robot_row = cursor.fetchone()
             
             if not robot_row or not robot_row['current_order_id']:
-                self.get_logger().warn(f"⚠ {pinky_role}에 할당된 주문 정보가 없습니다.")
+                self.get_logger().warn(f"⚠ No order assigned to {pinky_role}.")
                 return
 
             order_id = robot_row['current_order_id']
 
-            # 2. 주문 정보에서 피킹/패킹 커맨드 조회
+            # 3. 주문 마스터 테이블에서 로봇팔용 커맨드(숫자) 조회
             cursor.execute("SELECT picking_command, packing_command FROM orders WHERE order_id = %s", (order_id,))
             order_row = cursor.fetchone()
 
             if not order_row:
-                self.get_logger().error(f"❌ 주문 {order_id}의 커맨드 정보를 찾을 수 없습니다.")
+                self.get_logger().error(f"❌ Could not find command for Order #{order_id}")
                 return
 
-            # 3. 신호 종류에 따른 로봇팔 명령 전송
+            # 4. 조회한 커맨드 발송
             pub_msg = Float64()
             
-            if "picking" in event:
-                if self.r_states[0] == 1: # Picking 팔이 IDLE일 때만
+            if "pick_ready" in event or "pickingready" in event:
+                if self.r_states[0] == 1: # Picking 팔이 IDLE(1)일 때만
                     pub_msg.data = float(order_row['picking_command'])
                     self.pub_r1_order.publish(pub_msg)
-                    self.get_logger().info(f"🦾 [Picking Arm] 명령 전송: {pub_msg.data} (주문: {order_id})")
+                    self.get_logger().info(f"🦾 [Picking Arm] CMD Sent: {pub_msg.data} (Order: {order_id})")
                 else:
-                    self.get_logger().warn("🚨 Picking 로봇이 바쁩니다. 명령을 생략하거나 재시도 로직이 필요합니다.")
+                    self.get_logger().warn("🚨 Picking Arm is BUSY. Command skipped.")
 
-            elif "packing" in event:
-                if self.r_states[1] == 1: # Packing 팔이 IDLE일 때만
+            elif "pack_ready" in event or "packingready" in event:
+                if self.r_states[1] == 1: # Packing 팔이 IDLE(1)일 때만
                     pub_msg.data = float(order_row['packing_command'])
                     self.pub_r2_order.publish(pub_msg)
-                    self.get_logger().info(f"🦾 [Packing Arm] 명령 전송: {pub_msg.data} (주문: {order_id})")
+                    self.get_logger().info(f"🦾 [Packing Arm] CMD Sent: {pub_msg.data} (Order: {order_id})")
                 else:
-                    self.get_logger().warn("🚨 Packing 로봇이 바쁩니다.")
+                    self.get_logger().warn("🚨 Packing Arm is BUSY. Command skipped.")
 
-        except Error as e:
-            self.get_logger().error(f"DB 처리 중 에러: {e}")
+        except Exception as e:
+            self.get_logger().error(f"Collaborative logic error: {e}")
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            if cursor: cursor.close()
+            if conn and conn.is_connected(): conn.close()
 
 
 def main(args=None):

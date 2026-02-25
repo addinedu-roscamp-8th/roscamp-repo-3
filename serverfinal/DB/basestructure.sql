@@ -87,12 +87,12 @@ ON DUPLICATE KEY UPDATE
 -- =========================================================
 -- Order 1: RECEIVED
 INSERT INTO orders (customer_id, furniture_id, quantity, status, picking_command, packing_command, ordered_at) 
-VALUES (@isperfect, 1, 1, 'RECEIVED', 1.1234, 0.1234, DATE_SUB(NOW(), INTERVAL 2 DAY))
+VALUES (@isperfect, 1, 1, 'RECEIVED', NULL, NULL, DATE_SUB(NOW(), INTERVAL 2 DAY))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
 -- Order 2: RECEIVED
 INSERT INTO orders (customer_id, furniture_id, quantity, status, picking_command, packing_command, ordered_at) 
-VALUES (@isperfect, 9, 2, 'RECEIVED', 2.4507, 0.4507, NOW())
+VALUES (@isperfect, 9, 2, 'RECEIVED', NULL, NULL, NOW())
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
 -- Order 3: RECEIVED

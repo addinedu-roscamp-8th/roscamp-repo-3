@@ -7,12 +7,49 @@ from mysql.connector import Error
 import uvicorn
 import os
 import httpx
+from db_manager import db
 
 # ==========================================================
 # 0. 초기 설정 및 시스템 구성
 # ==========================================================
 
-app = FastAPI(title="LOVO Factory System API")
+app = FastAPI(title="Lovo Industrial Intelligence API")
+
+# ==========================================================
+# 0. 서버 시작 시 DB 초기화 (원상복귀) 로직
+# ==========================================================
+@app.on_event("startup")
+def reset_db_on_startup():
+    print("🔄 [DB RESET] 서버 시작: 데이터베이스를 초기 상태로 리셋합니다...")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. 모든 주문 상태 초기화
+        cursor.execute("UPDATE orders SET status = 'RECEIVED', started_at = NULL, finished_at = NULL")
+        
+        # 2. 핑키 로봇 상태 초기화 (1: 대기중)
+        cursor.execute("UPDATE robot_pinky SET current_order_id = NULL, action_state = 1")
+        
+        # 3. 로봇팔 상태 초기화 (1: IDLE)
+        cursor.execute("UPDATE robot_arm SET current_order_id = NULL, action_state = 1")
+        
+        # 4. 작업 로그 및 상태 히스토리 삭제
+        cursor.execute("DELETE FROM robot_job")
+        # 테이블명이 robot_state_history라고 하셨으므로 그대로 반영 (만약 log라면 log로 수정 필요)
+        try:
+            cursor.execute("DELETE FROM robot_state_history")
+        except:
+            cursor.execute("DELETE FROM robot_state_log") # 예외 처리용
+            
+        conn.commit()
+        print("✅ [DB RESET] 초기화 완료.")
+    except Exception as e:
+        print(f"❌ [DB RESET] 초기화 중 오류 발생: {e}")
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            cursor.close()
+            conn.close()
 
 # 모든 Origin에 대해 CORS 허용 (GUI 및 외부 서비스 통신용)
 app.add_middleware(
@@ -23,17 +60,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 데이터베이스 연결 설정
-db_config = {
-    'host': 'localhost',
-    'user': 'lovoDB',
-    'password': 'LovoDB1234!',
-    'database': 'factory_system'
-}
-
+# Database helper (using central db_manager)
 def get_db_connection():
-    """MySQL 데이터베이스 연결을 생성하여 반환합니다."""
-    return mysql.connector.connect(**db_config)
+    """Returns a connection from the global DB pool."""
+    return db.get_connection()
 
 # ==========================================================
 # 1. 데이터 모델 정의 (Pydantic Models)
@@ -136,6 +166,10 @@ def format_robot_data(rows):
             row['action_state'] = ARM_STATE_MAP.get(state_code, f"UNKNOWN({state_code})")
         else:
             row['action_state'] = PINKY_STATE_MAP.get(state_code, f"알수없음({state_code})")
+            
+        # 배터리 소수점 2자리로 고정
+        if 'battery_percent' in row and row['battery_percent'] is not None:
+            row['battery_percent'] = round(float(row['battery_percent']), 2)
     return rows
 
 # ==========================================================
@@ -456,16 +490,16 @@ def get_order_command(order_id: int):
         row = cursor.fetchone()
         if not row: raise HTTPException(status_code=404, detail="Order not found")
 
-        # 주문 수락 시 상태 'MAKING'으로 변경
+        # 주문 수락 시 상태 'IN_PROGRESS'로 변경
         if row['status'] == 'RECEIVED':
-            cursor.execute("UPDATE orders SET status = 'MAKING', started_at = CURRENT_TIMESTAMP WHERE order_id = %s", (order_id,))
+            cursor.execute("UPDATE orders SET status = 'IN_PROGRESS', started_at = CURRENT_TIMESTAMP WHERE order_id = %s", (order_id,))
 
         conn.commit()
         return {
             "order_id": order_id, 
             "picking_command": row['picking_command'],
             "packing_command": row['packing_command'],
-            "new_status": "MAKING"
+            "new_status": "IN_PROGRESS"
         }
     except Error as e:
         if conn: conn.rollback()
@@ -549,6 +583,24 @@ def get_fire_logs():
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM fire_incidents ORDER BY occurred_at DESC LIMIT 50")
         return cursor.fetchall()
+    finally:
+        if 'conn' in locals() and conn.is_connected(): conn.close()
+
+@app.post("/api/ai/event-log")
+async def receive_ai_event(data: AIEventLogData):
+    """AI 서버로부터 화재 등 이벤트 로그를 수신하여 DB에 저장"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # fire_incidents 테이블에 화재 발생 기록 저장
+        cursor.execute(
+            "INSERT INTO fire_incidents (robot_id, message, occurred_at) VALUES (%s, %s, CURRENT_TIMESTAMP)",
+            (data.robot_id, data.message)
+        )
+        conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
     finally:
         if 'conn' in locals() and conn.is_connected(): conn.close()
 

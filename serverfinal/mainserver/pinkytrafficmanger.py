@@ -5,6 +5,7 @@ from std_msgs.msg import String
 from collections import deque
 import time
 import threading
+from db_manager import db
 
 class AdvancedTrafficManager(Node):
     def __init__(self):
@@ -25,23 +26,13 @@ class AdvancedTrafficManager(Node):
         self.packing_active = set()   
         self.packing_done = set()     
 
-        # DB 설정
-        self.db_config = {
-            'host': 'localhost',
-            'user': 'lovoDB',
-            'password': 'LovoDB1234!',
-            'database': 'factory_system'
-        }
-
-        self.get_logger().info("🚦 [V11] 교통 관제 센터 가동 (DB 연동 작업 할당 모드)")
+        # [수정] YAML 변경에 맞춰 토픽 경로 수정 (/pinkyX/arm_done -> /pinkyX/arm_working/done)
+        self.create_subscription(String, '/pinky1/arm_working/done', lambda msg: self.arm_done_callback('pinky1', msg), 10)
+        self.create_subscription(String, '/pinky2/arm_working/done', lambda msg: self.arm_done_callback('pinky2', msg), 10)
+        self.create_subscription(String, '/pinky3/arm_working/done', lambda msg: self.arm_done_callback('pinky3', msg), 10)
 
     def get_db_connection(self):
-        try:
-            import mysql.connector
-            return mysql.connector.connect(**self.db_config)
-        except Exception as e:
-            self.get_logger().error(f"DB 연결 실패: {e}")
-            return None
+        return db.get_connection()
 
     def get_edge_key(self, wp_a, wp_b):
         wps = sorted([wp_a, wp_b])
@@ -153,8 +144,8 @@ class AdvancedTrafficManager(Node):
                 mapping = {1: 'WP4', 2: 'WP8', 3: 'WP6'}
                 wp = mapping.get(x_type, 'WP4') # 기본값 WP4
 
-                # 3. 상태 업데이트 (MAKING) 및 로봇에게 주문 ID 할당
-                cursor.execute("UPDATE orders SET status = 'MAKING' WHERE order_id = %s", (order_id,))
+                # 3. 상태 업데이트 (IN_PROGRESS) 및 로봇에게 주문 ID 할당
+                cursor.execute("UPDATE orders SET status = 'IN_PROGRESS' WHERE order_id = %s", (order_id,))
                 cursor.execute("UPDATE robot_pinky SET current_order_id = %s WHERE robot_role = %s", (order_id, robot_id.upper()))
                 conn.commit()
                 
@@ -176,22 +167,31 @@ class AdvancedTrafficManager(Node):
             self.respond_custom(f"{robot_id}|DISPATCH|{wp}")
 
     def handle_packing_process(self, robot_id):
+        """패킹 공정 진입 리포트 처리 (로봇팔 작업 대기 시작)"""
         if robot_id in self.packing_done:
             self.respond_custom(f"{robot_id}|PACKING_DONE|0")
             return
-        if robot_id in self.packing_active:
-            return 
-        self.packing_active.add(robot_id)
-        self.get_logger().info(f"📦 [패킹진행] {robot_id} 작업 시작...")
         
-        def packing_job():
-            time.sleep(3.0) 
-            self.packing_active.remove(robot_id)
+        # 현재 패킹 구역에서 대기 중임을 표시
+        self.packing_active.add(robot_id)
+        self.get_logger().info(f"📦 [패킹대기] {robot_id}가 구역에 도착했습니다. 로봇팔 신호를 기다립니다...")
+
+    def arm_done_callback(self, robot_id, msg):
+        """로봇팔로부터 작업 완료 신호를 받았을 때의 처리"""
+        # [수정] 대소문자 구분 없이 확인하기 위해 lower() 사용 및 규격 매칭
+        status = msg.data.lower()
+        self.get_logger().info(f"🦾 [로봇팔 신호] {robot_id} -> {msg.data} 감지")
+
+        if "pick_done" in status or "pickingdone" in status:
+            # 피킹 완료 시 즉시 다음 목적지(패킹 대기구역)로 출발하도록 응답
+            self.respond_custom(f"{robot_id}|PICKING_DONE|0")
+        
+        elif "pack_done" in status or "packingdone" in status:
+            # 패킹 완료 시 즉시 복귀하도록 상태 기록 및 응답
             self.packing_done.add(robot_id)
-            self.get_logger().info(f"✅ [패킹완료] {robot_id}")
+            if robot_id in self.packing_active:
+                self.packing_active.remove(robot_id)
             self.respond_custom(f"{robot_id}|PACKING_DONE|0")
-            
-        threading.Thread(target=packing_job).start()
 
     def handle_check_advance(self, robot_id, current_slot):
         target_slot = current_slot + 1

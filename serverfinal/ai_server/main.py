@@ -28,6 +28,7 @@ GUI_JPEG_QUALITY = 70
 GUI_FIRE_TRIGGER_LABELS = {"fire"}
 GUI_EXTINGUISH_TRIGGER_LABELS = {"ashes", "ash"}
 
+
 # Local camera crop settings (pixels)
 CROP_TOP = 50
 CROP_BOTTOM = 145

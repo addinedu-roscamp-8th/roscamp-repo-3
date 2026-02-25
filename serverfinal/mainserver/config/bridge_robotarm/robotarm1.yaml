@@ -25,13 +25,16 @@ topics:
     to_domain: 60
     remap: /PTP_goal_pose
 
-  # /robot1/PTP_capture_image_with_command/compressed:
-  #   type: lovo_interfaces/msg/CaptureImageWithCommand
-  #   from_domain: 59
-  #   to_domain: 60
-  #   remap: /PTP_capture_image_with_command/compressed
+
+
+  /robot1/PTP_capture_image_with_command/compressed:
+    type: lovo_interfaces/msg/CaptureImageWithCommand
+    from_domain: 59
+    to_domain: 60
+    remap: /PTP_capture_image_with_command/compressed
 
   # --- [상태] 로봇(60) -> 서버(59) ---
+
   /robot_state:
     type: std_msgs/msg/Int8
     from_domain: 60
@@ -49,3 +52,6 @@ topics:
     from_domain: 60
     to_domain: 59
     remap: /robot1/PTP_tcp_pose
+
+
+

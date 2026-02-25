@@ -13,17 +13,20 @@ topics:
     to_domain: 53
     remap: /pinky3/traffic/response
 
-  
   /battery/present:
     type: std_msgs/msg/Float32
     from_domain: 53
     to_domain: 59
     remap: /pinky3/battery/present
 
-
-  /taskzone_arr:
-    type: std_msgs/msg/String
+  /task_zone/arrived:
+    type: std_msgs/msg/String     #ex ) PICK_READY ,  PACK_READY
     from_domain: 53
     to_domain: 59
-    remap: /pinky3/taskzone_arr
+    remap: /pinky3/task_zone/arrived
 
+  /pinky3/arm_working/done:
+    type: std_msgs/msg/String
+    from_domain: 59
+    to_domain: 53
+    remap: /arm_working/done     #ex ) PICK_DONE ,  PACK_DONE 
