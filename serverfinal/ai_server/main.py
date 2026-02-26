@@ -16,14 +16,19 @@ from coord_transform import load_map_base_transforms, pixel_to_map, map_to_base
 from gui_alert_overlay import GuiAlertOverlay
 
 # --- Configuration ---
-MAIN_SERVER_IP = "192.168.0.30"
+# --- Configuration ---
+MAIN_SERVER_IP = "10.182.25.77"
 MAIN_SERVER_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/coordinates"
 MAIN_SERVER_EVENT_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/event-log"
-USB_CAMERA_INDEX = 2  # USB Camera index
-EVENT_IMAGE_DIR = Path(__file__).resolve().parent / "event_logs" / "images"
-EVENT_LOG_FILE = Path(__file__).resolve().parent / "event_logs" / "events.jsonl"
-GUI_PC_IP = "192.168.0.13"
-GUI_UDP_PORT = 5930
+USB_CAMERA_INDEX = 0 
+GUI_PC_IP = "127.0.0.1" # AI서버와 GUI가 같은 컴2이므로 localhost
+
+# GUI가 받을 포트들 정의
+GUI_PORT_USB_RAW = 9630     # USB 원본
+GUI_PORT_USB_OVERLAY = 9730 # USB 가공(Overlay)
+GUI_PORT_COMP1_RAW = 9610   #  로봇팔 원본
+GUI_PORT_COMP1_OVERLAY = 9710 # 로봇팔가공(Overlay)
+
 GUI_JPEG_QUALITY = 70
 GUI_FIRE_TRIGGER_LABELS = {"fire"}
 GUI_EXTINGUISH_TRIGGER_LABELS = {"ashes", "ash"}
@@ -121,6 +126,7 @@ gui_alert_overlay = GuiAlertOverlay(
     extinguish_text_duration_sec=5.0,
 )
 
+
 def _apply_local_camera_adjustments(frame: np.ndarray) -> np.ndarray:
     h, w = frame.shape[:2]
     start_y = max(0, CROP_TOP)
@@ -184,13 +190,9 @@ def usb_camera_task(robot_state: RobotState):
     if not cap.isOpened():
         logging.error(f"Could not open USB camera at index {USB_CAMERA_INDEX}")
         return
-    
-    # Set camera properties
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    
     gui_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
     logging.info(f"USB Camera started for {robot_state.robot_id}")
-    
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -385,12 +387,15 @@ def inference_worker_task():
                     logging.debug(f"Inference Error on {robot_id}: {e}")
                     processed_frame = frame_to_process.copy()
 
-                # [추가] 가공된 영상(Overlay)을 GUI 전송 (컴1 가공본 전용)
-                if robot_id == "robot1" and processed_frame is not None:
+                # 탑뷰 가공된 영상(Overlay)을 GUI 전송
+                if processed_frame is not None:
                     try:
                         ok, jpeg = cv2.imencode(".jpg", processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), GUI_JPEG_QUALITY])
                         if ok:
-                            broadcast_sock.sendto(jpeg.tobytes(), (GUI_PC_IP, GUI_PORT_COMP1_OVERLAY))
+                            if robot_id == "robot1":
+                                broadcast_sock.sendto(jpeg.tobytes(), (GUI_PC_IP, GUI_PORT_COMP1_OVERLAY))
+                            elif robot_id == "local":
+                                broadcast_sock.sendto(jpeg.tobytes(), (GUI_PC_IP, GUI_PORT_USB_OVERLAY))
                     except Exception as e:
                         logging.debug(f"Overlay Stream Error: {e}")
 
