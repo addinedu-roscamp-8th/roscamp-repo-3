@@ -10,6 +10,8 @@ from PyQt6.QtGui import QImage, QPixmap, QPainter
 import cv2
 import glob
 import os
+import socket
+import numpy as np
 from datetime import datetime
 from lovo_gui.constants import (
     MAIN_SYSTEM_MAP, MAIN_ORDER_LOG, MAIN_ROBOT_GRID, MAIN_CAMERA_VIEW,
@@ -87,64 +89,62 @@ class ZoomableCameraLabel(QLabel):
 
 
 class LocalCameraController(QThread):
-    """로컬 USB 카메라 제어용 스레드"""
+    """AI 서버로부터 UDP로 영상을 받는 스레드"""
     frame_updated = pyqtSignal(QImage)
     camera_status_changed = pyqtSignal(bool, str)
 
-    def __init__(self, camera_source: str):
+    def __init__(self, udp_port: int = 9630):
         super().__init__()
-        self.camera_source = camera_source
+        self.udp_port = udp_port
         self.running = False
 
     def run(self):
         self.running = True
-        cap = cv2.VideoCapture(self.camera_source)
-        if not cap.isOpened():
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        try:
+            sock.bind(("0.0.0.0", self.udp_port))
+            sock.settimeout(2.0)
+            self.camera_status_changed.emit(True, f"UDP 포트 {self.udp_port} 수신 대기 중")
+        except Exception as e:
             self.running = False
-            self.camera_status_changed.emit(False, f"카메라 오픈 실패: {self.camera_source}")
+            self.camera_status_changed.emit(False, f"UDP 포트 바인딩 실패: {e}")
+            sock.close()
             return
 
-        self.camera_status_changed.emit(True, f"카메라 연결됨: {self.camera_source}")
+        consecutive_timeouts = 0
 
         while self.running:
-            ret, frame = cap.read()
-            if ret:
-                try:
-                    # 반전 적용
-                    if CAMERA_FLIP_HORIZONTAL and CAMERA_FLIP_VERTICAL:
-                        frame = cv2.flip(frame, -1)
-                    elif CAMERA_FLIP_HORIZONTAL:
-                        frame = cv2.flip(frame, 1)
-                    elif CAMERA_FLIP_VERTICAL:
-                        frame = cv2.flip(frame, 0)
+            try:
+                data, addr = sock.recvfrom(65507)
+                
+                # JPEG 디코딩
+                nparr = np.frombuffer(data, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                if frame is not None:
+                    consecutive_timeouts = 0
+                    try:
+                        # OpenCV BGR -> RGB
+                        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        h, w, ch = rgb_image.shape
+                        bytes_per_line = ch * w
+                        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+                        self.frame_updated.emit(qt_image.copy())
+                    except Exception:
+                        pass
+                        
+            except socket.timeout:
+                consecutive_timeouts += 1
+                if consecutive_timeouts >= 3:  # 6초 타임아웃
+                    self.running = False
+                    self.camera_status_changed.emit(False, "AI 서버 연결 끊김 (타임아웃)")
+                    break
+            except Exception as e:
+                continue
 
-                    # 크롭 적용 (반전 후 기준으로 적용하여 조작 직관성 향상)
-                    h, w, _ = frame.shape
-                    # 음수 인덱싱 방지를 위한 범위 계산
-                    start_y = CROP_TOP
-                    end_y = h - CROP_BOTTOM
-                    start_x = CROP_LEFT
-                    end_x = w - CROP_RIGHT
-                    
-                    # 유효성 검사 (크롭 영역이 이미지보다 크면 원본 사용)
-                    if start_y < end_y and start_x < end_x:
-                        frame = frame[start_y:end_y, start_x:end_x]
-                    
-                    # OpenCV BGR -> RGB
-                    rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    h, w, ch = rgb_image.shape
-                    bytes_per_line = ch * w
-                    qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-                    # QImage 복사본을 전달해야 안전함 (버퍼 문제 방지)
-                    self.frame_updated.emit(qt_image.copy())
-                except Exception:
-                    pass
-            else:
-                self.running = False
-                self.camera_status_changed.emit(False, f"카메라 프레임 읽기 실패: {self.camera_source}")
-                break
-
-        cap.release()
+        sock.close()
 
     def stop(self):
         self.running = False
@@ -176,6 +176,7 @@ class MainTab(QWidget):
         self.local_camera = None
         self.system_map_cam_label = None
         self._topview_camera_connected = False
+        self._current_topview_port = 9630  # 현재 사용 중인 포트 (9630: 일반, 9730: 오버레이)
         self._topview_zoom_factor = 1.0
         self._latest_topview_pixmap = None
         self._topview_pan_x = 0.0
@@ -328,25 +329,26 @@ class MainTab(QWidget):
                 return path
         return None
 
-    def connect_topview_camera(self):
-        """탑뷰 USB 카메라 연결"""
-        if self.is_topview_camera_connected():
+    def connect_topview_camera(self, udp_port=None):
+        """AI 서버로부터 탑뷰 카메라 UDP 수신 시작"""
+        if udp_port is None:
+            udp_port = self._current_topview_port
+        
+        if self.is_topview_camera_connected() and udp_port == self._current_topview_port:
             return True
-
-        camera_path = self._find_topview_usb_camera_path()
-        if not camera_path:
-            self._set_topview_camera_connected(False)
-            self._topview_label_message("USB 탑뷰카메라 미감지")
-            return False
 
         self.disconnect_topview_camera()
         self._topview_zoom_factor = 1.0
         self._topview_pan_x = 0.0
         self._topview_pan_y = 0.0
         self._topview_drag_last_pos = None
-        self._topview_label_message("탑뷰카메라 연결 중...")
+        
+        port_type = "오버레이" if udp_port == 9730 else "일반"
+        self._topview_label_message(f"AI 서버 탑뷰카메라 연결 중... (포트 {udp_port} - {port_type})")
 
-        self.local_camera = LocalCameraController(camera_path)
+        # UDP 포트로 AI 서버로부터 영상 수신
+        self._current_topview_port = udp_port
+        self.local_camera = LocalCameraController(udp_port=udp_port)
         self.local_camera.frame_updated.connect(self._update_system_map_frame)
         self.local_camera.camera_status_changed.connect(self._on_local_camera_status_changed)
         self.local_camera.start()
@@ -354,10 +356,10 @@ class MainTab(QWidget):
 
     def _auto_connect_topview_camera(self):
         """앱 시작 시 탑뷰 카메라 자동 연결 1회 시도"""
-        self._topview_label_message("탑뷰카메라 자동 연결 시도 중...")
+        self._topview_label_message("AI 서버 탑뷰카메라 자동 연결 시도 중...")
         connected = self.connect_topview_camera()
         if not connected:
-            self._topview_label_message("USB 탑뷰카메라 미감지")
+            self._topview_label_message("AI 서버 연결 실패")
 
     def disconnect_topview_camera(self):
         """탑뷰 카메라 연결 해제"""
@@ -379,7 +381,7 @@ class MainTab(QWidget):
         self._topview_pan_x = 0.0
         self._topview_pan_y = 0.0
         self._topview_drag_last_pos = None
-        self._topview_label_message("탑뷰카메라 연결 버튼을 눌러 시작하세요")
+        self._topview_label_message("AI 서버 탑뷰카메라 연결 버튼을 눌러 시작하세요")
 
     def toggle_topview_camera(self):
         """탑뷰 카메라 연결/해제 토글"""
@@ -387,6 +389,15 @@ class MainTab(QWidget):
             self.disconnect_topview_camera()
             return False
         return self.connect_topview_camera()
+    
+    def switch_topview_port(self):
+        """탑뷰 카메라 포트 전환 (9630 ↔ 9730)"""
+        new_port = 9730 if self._current_topview_port == 9630 else 9630
+        return self.connect_topview_camera(udp_port=new_port)
+    
+    def get_current_topview_port(self):
+        """현재 탑뷰 카메라 포트 반환"""
+        return self._current_topview_port
 
     def _on_local_camera_status_changed(self, connected: bool, message: str):
         self._set_topview_camera_connected(connected)
@@ -527,7 +538,7 @@ class MainTab(QWidget):
         layout.addWidget(title)
         
         # 카메라 영상 표시용 라벨
-        self.system_map_cam_label = ZoomableCameraLabel("탑뷰카메라 연결 버튼을 눌러 시작하세요")
+        self.system_map_cam_label = ZoomableCameraLabel("AI 서버 탑뷰카메라 연결 버튼을 눌러 시작하세요")
         self.system_map_cam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.system_map_cam_label.setStyleSheet("color: white;")
         self.system_map_cam_label.wheel_zoomed.connect(self._on_topview_wheel_zoom)

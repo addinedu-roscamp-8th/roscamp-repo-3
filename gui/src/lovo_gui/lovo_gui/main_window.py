@@ -20,6 +20,7 @@ from lovo_gui.tabs.tab02_manual import ManualTab
 from lovo_gui.tabs.tab04_ros_monitor import RosMonitorTab
 from lovo_gui.tabs.tab05_communication import CommunicationTab
 from lovo_gui.tabs.tab06_log import LogTab
+from lovo_gui.dialogs import FireAlertDialog
 
 #######
 
@@ -32,6 +33,9 @@ class MyMainWindow(QMainWindow):
         # 설정 및 통신 매니저 초기화
         self.robot_settings = RobotSettings("config/robotname.json")
         self.comm_manager = CommunicationManager()
+        
+        # 화재 다이얼로그 (필요 시 표시)
+        self.fire_dialog = None
         
         self.setWindowTitle("Lovo 제어 시스템")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
@@ -254,6 +258,12 @@ class MyMainWindow(QMainWindow):
         print(f"[DEBUG MainWindow] robot_controllers: {list(self.communication_tab.robot_controllers.keys())}")
         self.main_tab.connect_robot_controllers(self.communication_tab.robot_controllers)
         
+        # robot1의 robot_state 시그널 연결 (화재 감지)
+        if 'jekobot_126b' in self.communication_tab.robot_controllers:
+            robot1_controller = self.communication_tab.robot_controllers['jekobot_126b']
+            robot1_controller.robot_state_updated.connect(self._on_robot1_state_changed)
+            print(f"[DEBUG MainWindow] robot1 state 시그널 연결 완료")
+        
         # ROS Monitor 탭에 로봇 컨트롤러 전달
         self.ros_monitor_tab.set_robot_controllers(self.communication_tab.robot_controllers)
         
@@ -348,20 +358,50 @@ class MyMainWindow(QMainWindow):
             and self.main_tab.is_topview_camera_connected()
         )
         if connected:
-            self.btn_topview_camera.setText("탑뷰카메라 해제")
-            self.btn_topview_camera.setStyleSheet(STYLE_BUTTON_GRAY)
+            # 연결되어 있으면 현재 포트에 따라 텍스트 변경
+            current_port = self.main_tab.get_current_topview_port() if hasattr(self.main_tab, "get_current_topview_port") else 9630
+            if current_port == 9730:
+                self.btn_topview_camera.setText("탑뷰 일반영상")
+                self.btn_topview_camera.setStyleSheet(STYLE_BUTTON_ORANGE)
+            else:
+                self.btn_topview_camera.setText("탑뷰 오버레이")
+                self.btn_topview_camera.setStyleSheet(STYLE_BUTTON_GRAY)
         else:
             self.btn_topview_camera.setText("탑뷰카메라 연결")
             self.btn_topview_camera.setStyleSheet(STYLE_BUTTON_ORANGE)
 
     def _toggle_topview_camera(self):
-        """탑뷰 카메라 연결/해제 토글"""
+        """탑뷰 카메라 포트 전환 (9630 ↔ 9730)"""
         try:
-            if hasattr(self, "main_tab") and hasattr(self.main_tab, "toggle_topview_camera"):
-                self.main_tab.toggle_topview_camera()
+            if hasattr(self, "main_tab"):
+                if self.main_tab.is_topview_camera_connected():
+                    # 연결되어 있으면 포트 전환
+                    if hasattr(self.main_tab, "switch_topview_port"):
+                        self.main_tab.switch_topview_port()
+                else:
+                    # 연결되어 있지 않으면 연결
+                    if hasattr(self.main_tab, "connect_topview_camera"):
+                        self.main_tab.connect_topview_camera()
             self._sync_topview_camera_button()
         except Exception as e:
             print(f"[UI] _toggle_topview_camera error: {e}")
+    
+    def _on_robot1_state_changed(self, state: int):
+        """robot1의 robot_state 값이 변경될 때 호출"""
+        print(f"[DEBUG MainWindow] robot1 state changed: {state}")
+        
+        if state == 5:
+            # 화재 상황 발생 (state == 5)
+            if self.fire_dialog is None or not self.fire_dialog.isVisible():
+                print(f"[DEBUG MainWindow] 화재 다이얼로그 표시 (state={state})")
+                self.fire_dialog = FireAlertDialog(self)
+                self.fire_dialog.show()
+        else:
+            # 화재 상황 해제
+            if self.fire_dialog is not None and self.fire_dialog.isVisible():
+                print(f"[DEBUG MainWindow] 화재 다이얼로그 닫기 (state={state})")
+                self.fire_dialog.close()
+                self.fire_dialog = None
 
 
 def main():

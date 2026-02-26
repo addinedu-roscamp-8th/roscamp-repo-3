@@ -16,11 +16,12 @@ from coord_transform import load_map_base_transforms, pixel_to_map, map_to_base
 from gui_alert_overlay import GuiAlertOverlay
 
 # --- Configuration ---
-# --- Configuration ---
-MAIN_SERVER_IP = "10.182.25.77"
+MAIN_SERVER_IP = "192.168.0.30"
 MAIN_SERVER_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/coordinates"
 MAIN_SERVER_EVENT_URL = f"http://{MAIN_SERVER_IP}:5000/api/ai/event-log"
 USB_CAMERA_INDEX = 0 
+EVENT_IMAGE_DIR = Path(__file__).resolve().parent / "event_logs" / "images"
+EVENT_LOG_FILE = Path(__file__).resolve().parent / "event_logs" / "events.jsonl"
 GUI_PC_IP = "127.0.0.1" # AI서버와 GUI가 같은 컴2이므로 localhost
 
 # GUI가 받을 포트들 정의
