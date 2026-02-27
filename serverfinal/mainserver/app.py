@@ -654,9 +654,52 @@ latest_ai_coordinates: Optional[AICoordinateData] = None
 
 @app.post("/api/ai/coordinates")
 async def receive_ai_coordinates(data: AICoordinateData):
-    """AI 비전 서버로부터 탐지된 객체의 정밀 좌표를 수신합니다."""
+    """AI 비전 서버로부터 탐지된 객체의 정밀 좌표를 수신하여 DB에 저장합니다."""
     global latest_ai_coordinates
     latest_ai_coordinates = data
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. 로봇 식별 (예: pinky1 -> PINKY_1)
+        pinky_id = None
+        r_id_lower = data.robot_id.lower()
+        if 'pinky' in r_id_lower:
+            # 마지막 숫자를 추출하여 DB 역할 이름 생성
+            p_num = "".join(filter(str.isdigit, r_id_lower))
+            db_role = f"PINKY_{p_num}" if p_num else "PINKY_1"
+            
+            cursor.execute("SELECT pinky_id FROM robot_pinky WHERE robot_role = %s", (db_role,))
+            res = cursor.fetchone()
+            if res:
+                # 결과가 튜플일 수도 있고 dict일 수도 있음 (get_db_connection의 cursor 설정에 따름)
+                pinky_id = res['pinky_id'] if isinstance(res, dict) else res[0]
+
+        # 2. 정밀 좌표 추출 (base_coord)
+        px, py, pz = 0.0, 0.0, 0.0
+        if data.target and data.target.base_coord:
+            px = data.target.base_coord.get('x', 0.0)
+            py = data.target.base_coord.get('y', 0.0)
+            pz = data.target.base_coord.get('z', 0.0)
+
+        # 3. DB 기록 (robot_state_log)
+        query = """
+            INSERT INTO robot_state_log 
+            (pinky_id, pose_x, pose_y, pose_z, action_state, ts) 
+            VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+        """
+        # action_state 2: 운송/작업 중 의미로 저장
+        cursor.execute(query, (pinky_id, px, py, pz, 2))
+        
+        conn.commit()
+    except Exception as e:
+        print(f"⚠️ [AI DB 로그 에러] {e}")
+    finally:
+        if 'conn' in locals() and conn.is_connected():
+            cursor.close()
+            conn.close()
+
     return {"status": "success"}
 
 @app.get("/api/ai/coordinates")
