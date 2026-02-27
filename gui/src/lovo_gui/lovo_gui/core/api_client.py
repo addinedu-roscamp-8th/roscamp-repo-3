@@ -165,6 +165,54 @@ class APIClient(QObject):
         except Exception as e:
             print(f"Error fetching fire logs: {e}")
         return []
+    
+    # ==================== AI Server 이미지 저장 제어 ====================
+    
+    def _get_ai_server_url(self):
+        """AI 서버 URL 반환 (메인 서버 IP + 포트 8000)"""
+        try:
+            # "http://192.168.0.30:5000" -> "192.168.0.30"
+            ip_with_port = self.base_url.replace("http://", "").replace("https://", "")
+            ip_address = ip_with_port.split(":")[0]
+            return f"http://{ip_address}:8000"
+        except Exception:
+            return "http://127.0.0.1:8000"  # 기본값
+    
+    def enable_ai_image_saving(self):
+        """AI 이벤트 이미지 저장 활성화"""
+        try:
+            ai_url = self._get_ai_server_url()
+            response = requests.post(f"{ai_url}/api/image-saving/enable", timeout=self.timeout)
+            if response.status_code == 200:
+                print(f"✅ AI 이미지 저장 활성화")
+                return True
+        except Exception as e:
+            print(f"❌ AI 이미지 저장 활성화 실패: {e}")
+        return False
+    
+    def disable_ai_image_saving(self):
+        """AI 이벤트 이미지 저장 비활성화"""
+        try:
+            ai_url = self._get_ai_server_url()
+            response = requests.post(f"{ai_url}/api/image-saving/disable", timeout=self.timeout)
+            if response.status_code == 200:
+                print(f"✅ AI 이미지 저장 비활성화")
+                return True
+        except Exception as e:
+            print(f"❌ AI 이미지 저장 비활성화 실패: {e}")
+        return False
+    
+    def get_ai_image_saving_status(self):
+        """AI 이벤트 이미지 저장 상태 조회"""
+        try:
+            ai_url = self._get_ai_server_url()
+            response = requests.get(f"{ai_url}/api/image-saving/status", timeout=self.timeout)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("image_saving_enabled", False)
+        except Exception as e:
+            print(f"Error fetching AI image saving status: {e}")
+        return False
 
 # 전역에서 사용할 수 있는 싱글턴 인스턴스 (필요 시)
 api_client = APIClient()

@@ -27,6 +27,7 @@ class FireEventLogger:
         self.fire_labels = fire_labels or {"fire"}
         self.ashes_labels = ashes_labels or {"ashes", "ash"}
         self._robot_state: Dict[str, Dict[str, object]] = {}
+        self.image_saving_enabled = True  # 이미지 저장 활성화 플래그
 
     def on_frame_received(self, robot_id: str, received_time: Optional[float] = None):
         state = self._get_or_create_state(robot_id)
@@ -139,6 +140,16 @@ class FireEventLogger:
             return None
         return base64.b64encode(jpeg.tobytes()).decode("utf-8")
 
+    def set_image_saving(self, enabled: bool):
+        """이미지 저장 ON/OFF 설정"""
+        self.image_saving_enabled = enabled
+        status = "활성화" if enabled else "비활성화"
+        logging.info(f"🖼️ AI 이벤트 이미지 저장: {status}")
+    
+    def get_image_saving_status(self) -> bool:
+        """이미지 저장 상태 반환"""
+        return self.image_saving_enabled
+    
     def _save_and_send(
         self,
         robot_id: str,
@@ -152,9 +163,15 @@ class FireEventLogger:
         self._ensure_event_dirs()
         now = time.time()
         timestamp_iso = datetime.fromtimestamp(now).isoformat(timespec="seconds")
-        file_stem = f"{robot_id}_{event_type}_{int(now * 1000)}"
-        image_path = self.event_image_dir / f"{file_stem}.jpg"
-        image_saved = cv2.imwrite(str(image_path), frame)
+        
+        # 이미지 저장 제어
+        image_path = None
+        image_saved = False
+        if self.image_saving_enabled:
+            file_stem = f"{robot_id}_{event_type}_{int(now * 1000)}"
+            image_path = self.event_image_dir / f"{file_stem}.jpg"
+            image_saved = cv2.imwrite(str(image_path), frame)
+        
         image_b64 = self._encode_frame_to_jpeg_base64(frame)
 
         entry = {

@@ -539,6 +539,24 @@ async def get_events(limit: int = 50):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read event logs: {e}")
 
+@app.post("/api/image-saving/enable")
+async def enable_image_saving():
+    """AI 이벤트 이미지 저장 활성화"""
+    event_logger.set_image_saving(True)
+    return {"status": "success", "image_saving_enabled": True}
+
+@app.post("/api/image-saving/disable")
+async def disable_image_saving():
+    """AI 이벤트 이미지 저장 비활성화"""
+    event_logger.set_image_saving(False)
+    return {"status": "success", "image_saving_enabled": False}
+
+@app.get("/api/image-saving/status")
+async def get_image_saving_status():
+    """AI 이벤트 이미지 저장 상태 조회"""
+    enabled = event_logger.get_image_saving_status()
+    return {"image_saving_enabled": enabled}
+
 @app.get("/")
 def read_root():
     return {"message": "LOVO Multi-Robot AI Server is running", "robots": list(ROBOT_CONFIG.keys())}

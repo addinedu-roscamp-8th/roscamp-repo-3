@@ -12,7 +12,7 @@ from PyQt6.QtGui import QCloseEvent, QScreen
 from lovo_gui.tabs.tab05_communication import RobotSettings, CommunicationManager
 from lovo_gui.constants import (
     WINDOW_WIDTH, WINDOW_HEIGHT, SIDEBAR_WIDTH, SIDEBAR_BUTTON_HEIGHT,
-    STYLE_BUTTON_GREEN, STYLE_BUTTON_RED, STYLE_BUTTON_YELLOW, STYLE_BUTTON_ORANGE, STYLE_BUTTON_GRAY,
+    STYLE_BUTTON_GREEN, STYLE_BUTTON_RED, STYLE_BUTTON_YELLOW, STYLE_BUTTON_ORANGE, STYLE_BUTTON_GRAY, STYLE_BUTTON_BLUE,
     COLOR_DARK_BG, TAB_HEIGHT, TAB_WIDTH
 )
 from lovo_gui.tabs.tab01_main import MainTab
@@ -78,6 +78,9 @@ class MyMainWindow(QMainWindow):
         # 오른쪽: 사이드바
         sidebar = self._create_sidebar()
         main_layout.addWidget(sidebar)
+        
+        # AI 영상 저장 버튼 초기 상태 동기화
+        self._sync_ai_image_saving_button()
     
     def _create_sidebar(self):
         """사이드바 생성"""
@@ -123,6 +126,18 @@ class MyMainWindow(QMainWindow):
         self.btn_server_disconnect.setStyleSheet(server_style)
         self.btn_server_disconnect.clicked.connect(self._server_disconnect)
         
+        # 운송로봇 통신 방식 전환 버튼
+        self.btn_amr_comm_mode = QPushButton("운송로봇\nAPI 모드")
+        self.btn_amr_comm_mode.setFixedHeight(SIDEBAR_BUTTON_HEIGHT)
+        self.btn_amr_comm_mode.setStyleSheet(STYLE_BUTTON_BLUE)
+        self.btn_amr_comm_mode.clicked.connect(self._toggle_amr_comm_mode)
+        
+        # AI 영상 저장 토글 버튼
+        self.btn_ai_image_saving = QPushButton("AI 영상 저장\n(켜짐)")
+        self.btn_ai_image_saving.setFixedHeight(SIDEBAR_BUTTON_HEIGHT)
+        self.btn_ai_image_saving.setStyleSheet(STYLE_BUTTON_GREEN)
+        self.btn_ai_image_saving.clicked.connect(self._toggle_ai_image_saving)
+        
         btn_exit = QPushButton("종료")
         btn_exit.setFixedHeight(SIDEBAR_BUTTON_HEIGHT)
         btn_exit.setStyleSheet(STYLE_BUTTON_GRAY)
@@ -133,6 +148,8 @@ class MyMainWindow(QMainWindow):
         layout.addWidget(btn_reset)
         layout.addWidget(self.btn_topview_camera)
         layout.addWidget(self.btn_server_disconnect)
+        layout.addWidget(self.btn_amr_comm_mode)
+        layout.addWidget(self.btn_ai_image_saving)
         layout.addStretch()
         layout.addWidget(btn_exit)
         
@@ -237,17 +254,17 @@ class MyMainWindow(QMainWindow):
         self.manual_tab = ManualTab(self.robot_settings)
         tabs.addTab(self.manual_tab, "Manual")
         
-        # Communication 탭
+        # Communication 탭 (내부적으로만 사용, UI에 표시 안 함)
         self.communication_tab = CommunicationTab(self.robot_settings, self.comm_manager)
-        tabs.addTab(self.communication_tab, "Communication")
+        # tabs.addTab(self.communication_tab, "Communication")  # 숨김 처리
         
         # ROS Monitor 탭
         self.ros_monitor_tab = RosMonitorTab(self.comm_manager)
         tabs.addTab(self.ros_monitor_tab, "ROS Monitor")
         
-        # Log 탭
+        # Log 탭 (내부적으로만 사용, UI에 표시 안 함)
         self.log_tab = LogTab(self.comm_manager)
-        tabs.addTab(self.log_tab, "Log")
+        # tabs.addTab(self.log_tab, "Log")  # 숨김 처리
         
         # Manual 탭에 컨트롤러 연결
         self.manual_tab.connect_controllers(self.communication_tab)
@@ -257,6 +274,11 @@ class MyMainWindow(QMainWindow):
         print(f"[DEBUG MainWindow] Main 탭에 robot_controllers 연결 중...")
         print(f"[DEBUG MainWindow] robot_controllers: {list(self.communication_tab.robot_controllers.keys())}")
         self.main_tab.connect_robot_controllers(self.communication_tab.robot_controllers)
+        
+        # Main 탭에 AMR 컨트롤러 연결 (ROS 모드용)
+        if hasattr(self.communication_tab, 'amr_controllers'):
+            self.main_tab.connect_amr_controllers(self.communication_tab.amr_controllers)
+            print(f"[DEBUG MainWindow] Main 탭에 amr_controllers 연결 완료")
         
         # robot1의 robot_state 시그널 연결 (화재 감지)
         if 'jekobot_126b' in self.communication_tab.robot_controllers:
@@ -349,6 +371,111 @@ class MyMainWindow(QMainWindow):
         else:
             self.btn_server_disconnect.setText("서버 연결")
             self.btn_server_disconnect.setStyleSheet(STYLE_BUTTON_ORANGE)
+    
+    def _toggle_amr_comm_mode(self):
+        """운송로봇 통신 방식 전환 (API ↔ ROS)"""
+        try:
+            if not hasattr(self, 'main_tab'):
+                return
+            
+            # 현재 모드 반전
+            current_mode = getattr(self.main_tab, 'use_ros_for_amr', False)
+            new_mode = not current_mode
+            
+            # MainTab에 새 모드 설정
+            if hasattr(self.main_tab, 'set_amr_communication_mode'):
+                self.main_tab.set_amr_communication_mode(new_mode)
+            
+            # 버튼 텍스트 업데이트
+            if new_mode:
+                # ROS 모드
+                self.btn_amr_comm_mode.setText("운송로봇\nROS 모드")
+                self.btn_amr_comm_mode.setStyleSheet(STYLE_BUTTON_GREEN)
+                print("[UI] 운송로봇 통신 방식: ROS 모드")
+            else:
+                # API 모드
+                self.btn_amr_comm_mode.setText("운송로봇\nAPI 모드")
+                self.btn_amr_comm_mode.setStyleSheet(STYLE_BUTTON_BLUE)
+                print("[UI] 운송로봇 통신 방식: API 모드")
+                
+            # 로그 탭에 메시지 추가
+            if hasattr(self, 'log_tab'):
+                mode_text = "ROS 직접 연결" if new_mode else "서버 API"
+                self.log_tab.add_log(f"[시스템] 운송로봇 통신 방식 전환: {mode_text}")
+                
+        except Exception as e:
+            print(f"[UI] _toggle_amr_comm_mode error: {e}")
+
+    def _toggle_ai_image_saving(self):
+        """AI 영상 저장 토글"""
+        try:
+            # 버튼의 현재 텍스트로 상태 판단
+            current_text = self.btn_ai_image_saving.text()
+            is_currently_enabled = "(켜짐)" in current_text
+            
+            # 즉시 UI 변경 (사용자 경험 향상)
+            if is_currently_enabled:
+                # 현재 켜져있으면 -> 끄기
+                self.btn_ai_image_saving.setText("AI 영상 저장\n(꺼짐)")
+                self.btn_ai_image_saving.setStyleSheet(STYLE_BUTTON_GRAY)
+                print("[UI] AI 영상 저장: 꺼짐")
+                if hasattr(self, 'log_tab'):
+                    self.log_tab.add_log("[시스템] AI 영상 저장 비활성화")
+            else:
+                # 현재 꺼져있으면 -> 켜기
+                self.btn_ai_image_saving.setText("AI 영상 저장\n(켜짐)")
+                self.btn_ai_image_saving.setStyleSheet(STYLE_BUTTON_GREEN)
+                print("[UI] AI 영상 저장: 켜짐")
+                if hasattr(self, 'log_tab'):
+                    self.log_tab.add_log("[시스템] AI 영상 저장 활성화")
+            
+            # 백그라운드에서 API 호출 (실패해도 UI는 이미 변경됨)
+            try:
+                from lovo_gui.core.api_client import APIClient
+                api_client = APIClient(self.robot_settings.server_ip)
+                
+                if is_currently_enabled:
+                    api_client.disable_ai_image_saving()
+                else:
+                    api_client.enable_ai_image_saving()
+            except Exception as api_error:
+                print(f"[Warning] AI 서버 API 호출 실패 (UI는 변경됨): {api_error}")
+                        
+        except Exception as e:
+            print(f"[UI] _toggle_ai_image_saving error: {e}")
+            if hasattr(self, 'log_tab'):
+                self.log_tab.add_log(f"[시스템] AI 영상 저장 토글 오류: {e}")
+
+    def _sync_ai_image_saving_button(self):
+        """AI 영상 저장 버튼 초기 상태 동기화"""
+        try:
+            from lovo_gui.core.api_client import APIClient
+            
+            api_client = APIClient(self.robot_settings.server_ip)
+            current_status = api_client.get_ai_image_saving_status()
+            
+            if current_status is None:
+                print("[UI] AI 서버 상태 확인 실패 (초기화 시)")
+                # 기본값: 저장 켜짐으로 가정
+                self.btn_ai_image_saving.setText("AI 영상 저장\n(켜짐)")
+                self.btn_ai_image_saving.setStyleSheet(STYLE_BUTTON_GREEN)
+                return
+            
+            if current_status:
+                self.btn_ai_image_saving.setText("AI 영상 저장\n(켜짐)")
+                self.btn_ai_image_saving.setStyleSheet(STYLE_BUTTON_GREEN)
+                print("[UI] AI 영상 저장 초기 상태: 켜짐")
+            else:
+                self.btn_ai_image_saving.setText("AI 영상 저장\n(꺼짐)")
+                self.btn_ai_image_saving.setStyleSheet(STYLE_BUTTON_GRAY)
+                print("[UI] AI 영상 저장 초기 상태: 꺼짐")
+                
+        except Exception as e:
+            print(f"[UI] _sync_ai_image_saving_button error: {e}")
+            # 오류 발생 시 기본값: 저장 켜짐으로 가정
+            self.btn_ai_image_saving.setText("AI 영상 저장\n(켜짐)")
+            self.btn_ai_image_saving.setStyleSheet(STYLE_BUTTON_GREEN)
+
 
     def _sync_topview_camera_button(self, *_args):
         """탑뷰 카메라 버튼 텍스트/스타일 동기화"""

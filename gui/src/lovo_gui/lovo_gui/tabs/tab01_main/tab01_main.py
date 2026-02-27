@@ -163,6 +163,9 @@ class MainTab(QWidget):
         self.camera_view_label = None
         self.robot_status_labels = {}  # 로봇 상태 라벨들 저장 {robot_id: {'status': label, 'battery': label, 'work': label}}
         self.robot_fsm_states = {}  # 로봇팔 FSM 상태 저장 {robot_id: state_code}
+        self.use_ros_for_amr = False  # 운송로봇 통신 방식: False=API, True=ROS
+        self.amr_controllers = {}  # AMR 컨트롤러 저장 {robot_id: controller}
+        self.amr_ros_data = {}  # AMR ROS 토픽 데이터 {robot_id: {'battery': float, 'state': int}}
         
         # 서버 역할(Role) -> GUI ID 매핑 생성
         self.role_map = {}
@@ -197,6 +200,71 @@ class MainTab(QWidget):
     def cleanup(self):
         """리소스 정리"""
         self.disconnect_topview_camera()
+    
+    def set_amr_communication_mode(self, use_ros: bool):
+        """운송로봇 통신 방식 설정
+        
+        Args:
+            use_ros: True=ROS 직접 연결, False=API 방식
+        """
+        self.use_ros_for_amr = use_ros
+        mode_text = "ROS 모드" if use_ros else "API 모드"
+        print(f"[MainTab] 운송로봇 통신 방식 변경: {mode_text}")
+        
+        # 현재 상태 레이블 즉시 업데이트
+        for robot in self.robot_settings.get_robots():
+            robot_id = robot.get("id")
+            robot_domain = robot.get("domain")
+            
+            if robot_domain in [51, 52, 53]:  # 운송 로봇만
+                labels = self.robot_status_labels.get(robot_id)
+                if not labels:
+                    continue
+                    
+                status_label = labels.get("status")
+                work_label = labels.get("work")
+                battery_label = labels.get("battery")
+                
+                if use_ros:
+                    # ROS 모드: 실제 연결 상태 확인 필요 (일단 Unknown으로)
+                    if status_label:
+                        self._set_status_cell_text(status_label, "Unknown", "#616161")
+                    
+                    # 로봇 하는일: ROS 데이터 대기 상태로 초기화
+                    if work_label:
+                        work_label.setText("⏳ 상태 대기중...")
+                        work_label.setStyleSheet("""
+                            background-color: #9E9E9E;
+                            color: white;
+                            font-size: 12px;
+                            font-weight: bold;
+                            padding: 8px;
+                            border: 1px solid #ccc;
+                        """)
+                    
+                    # 배터리: ROS 데이터 대기
+                    if battery_label:
+                        battery_label.setText("-")
+                else:
+                    # API 모드: ROS Online 고정
+                    if status_label:
+                        self._set_status_cell_text(status_label, "ROS Online", "#1e7e34")
+                    
+                    # 로봇 하는일: API 데이터로 업데이트될 예정 (배송 대기로 초기화)
+                    if work_label:
+                        work_label.setText("🚚 배송 대기")
+                        work_label.setStyleSheet("""
+                            background-color: #4CAF50;
+                            color: white;
+                            font-size: 12px;
+                            font-weight: bold;
+                            padding: 8px;
+                            border: 1px solid #ccc;
+                        """)
+                    
+                    # 배터리: API 데이터로 업데이트될 예정
+                    if battery_label:
+                        battery_label.setText("-")
 
     def _bind_connection_state_store(self):
         """공통 연결 상태 스토어 구독"""
@@ -215,6 +283,15 @@ class MainTab(QWidget):
         status_label = labels.get("status")
         if status_label is None:
             return
+
+        # 운송 로봇(domain 51, 52, 53) 처리
+        robot = next((r for r in self.robot_settings.get_robots() if r.get("id") == robot_id), None)
+        if robot and robot.get("domain") in [51, 52, 53]:
+            # API 모드일 때는 항상 ROS Online 고정
+            if not self.use_ros_for_amr:
+                self._set_status_cell_text(status_label, "ROS Online", "#1e7e34")
+                return
+            # ROS 모드일 때는 실제 연결 상태 표시 (아래 로직 계속)
 
         if ros_connected is True:
             self._set_status_cell_text(status_label, "ROS Online", "#1e7e34")
@@ -247,6 +324,91 @@ class MainTab(QWidget):
             
             controller.robot_state_updated.connect(on_state_update)
     
+    def connect_amr_controllers(self, amr_controllers):
+        """AMR 컨트롤러 연결 (ROS 모드용)"""
+        self.amr_controllers = amr_controllers
+        
+        for robot_id, controller in amr_controllers.items():
+            # 배터리 업데이트
+            def on_battery_update(battery, rid=robot_id):
+                self._on_amr_battery_updated(rid, battery)
+            controller.battery_updated.connect(on_battery_update)
+            
+            # 상태 업데이트 (REPORT_STATE 파싱)
+            def on_traffic_update(msg, rid=robot_id):
+                self._on_amr_traffic_updated(rid, msg)
+            controller.traffic_request_updated.connect(on_traffic_update)
+            
+        print(f"[MainTab] AMR 컨트롤러 연결 완료: {list(amr_controllers.keys())}")
+    
+    def _on_amr_battery_updated(self, robot_id, battery):
+        """AMR 배터리 업데이트 (ROS 토픽)"""
+        if robot_id not in self.amr_ros_data:
+            self.amr_ros_data[robot_id] = {}
+        self.amr_ros_data[robot_id]['battery'] = battery
+        
+        # ROS 모드일 때만 UI 업데이트
+        if self.use_ros_for_amr:
+            labels = self.robot_status_labels.get(robot_id)
+            if labels:
+                # 배터리 값 업데이트
+                if 'battery' in labels:
+                    labels['battery'].setText(f"{battery:.1f}%")
+                
+                # 배터리 토픽이 수신되면 ROS 통신이 정상이므로 통신 상태를 ROS Online으로 변경
+                if 'status' in labels:
+                    self._set_status_cell_text(labels['status'], "ROS Online", "#1e7e34")
+    
+    def _on_amr_traffic_updated(self, robot_id, msg):
+        """AMR 트래픽 요청 업데이트 (REPORT_STATE 파싱)"""
+        # REPORT_STATE | robot_id | state_num 형식
+        if msg.startswith("REPORT_STATE"):
+            parts = msg.split("|")
+            if len(parts) >= 3:
+                try:
+                    state_num = int(parts[2].strip())
+                    if robot_id not in self.amr_ros_data:
+                        self.amr_ros_data[robot_id] = {}
+                    self.amr_ros_data[robot_id]['state'] = state_num
+                    
+                    # ROS 모드일 때만 UI 업데이트
+                    if self.use_ros_for_amr:
+                        self._update_amr_work_label(robot_id, state_num)
+                        
+                        # REPORT_STATE 토픽이 수신되면 ROS 통신이 정상이므로 통신 상태를 ROS Online으로 변경
+                        labels = self.robot_status_labels.get(robot_id)
+                        if labels and 'status' in labels:
+                            self._set_status_cell_text(labels['status'], "ROS Online", "#1e7e34")
+                except (ValueError, IndexError) as e:
+                    print(f"[MainTab] REPORT_STATE 파싱 오류: {msg}, {e}")
+    
+    def _update_amr_work_label(self, robot_id, state_num):
+        """AMR 작업 상태 라벨 업데이트"""
+        from lovo_gui.constants import AMR_STATE_DESCRIPTIONS, AMR_STATE_COLORS, AMR_STATE_EMOJIS
+        
+        labels = self.robot_status_labels.get(robot_id)
+        if not labels or 'work' not in labels:
+            return
+        
+        work_label = labels['work']
+        
+        # 상태 코드를 텍스트로 변환
+        state_desc = AMR_STATE_DESCRIPTIONS.get(state_num, f"알 수 없음({state_num})")
+        emoji = AMR_STATE_EMOJIS.get(state_num, "❓")
+        color = AMR_STATE_COLORS.get(state_num, "#999999")
+        
+        new_text = f"{emoji} {state_desc}"
+        
+        work_label.setText(new_text)
+        work_label.setStyleSheet(f"""
+            background-color: {color};
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 8px;
+            border: 1px solid #ccc;
+        """)
+    
     def _on_robot_fsm_state_changed(self, robot_id, state_code):
         """로봇팔 FSM 상태 변경 시 호출"""
         self.robot_fsm_states[robot_id] = state_code
@@ -263,7 +425,7 @@ class MainTab(QWidget):
         emoji = ROBOT_STATE_EMOJIS.get(state_code, "")
         color = ROBOT_STATE_COLORS.get(state_code, "#999999")
         
-        new_text = f"{emoji} {state_name} - {state_desc}"
+        new_text = f"{emoji} {state_desc}"
         
         # 텍스트와 스타일 업데이트
         work_label.setText(new_text)
@@ -442,16 +604,54 @@ class MainTab(QWidget):
             
             data = api_data_by_role.get(role)
             if data:
-                # 배터리 (로봇팔 등은 배터리 정보가 없을 수 있음)
-                bat = data.get('battery_percent')
-                if bat is not None:
-                    labels['battery'].setText(f"{bat}%")
+                # 배터리 처리
+                # 운송 로봇(PINKY_1, PINKY_2, PINKY_3)은 ROS 모드일 때 API 데이터 무시
+                if role in ['PINKY_1', 'PINKY_2', 'PINKY_3'] and self.use_ros_for_amr:
+                    # ROS 모드: 배터리는 ROS 토픽에서 업데이트됨 (스킵)
+                    pass
                 else:
-                    labels['battery'].setText("-")
+                    # API 모드 또는 로봇팔: 서버 데이터 사용
+                    bat = data.get('battery_percent')
+                    if bat is not None:
+                        labels['battery'].setText(f"{bat}%")
+                    else:
+                        labels['battery'].setText("-")
                 
                 # 로봇 하는일 텍스트
                 work = data.get('action_state', '업무 대기')
-                labels['work'].setText(work)
+                work_label = labels['work']
+                
+                # 운송 로봇(PINKY_1, PINKY_2, PINKY_3) 처리
+                # API 모드일 때만 서버 데이터로 업데이트
+                # ROS 모드일 때는 ROS 토픽 데이터 사용 (위에서 시그널로 처리됨)
+                if role in ['PINKY_1', 'PINKY_2', 'PINKY_3'] and not self.use_ros_for_amr:
+                    # 운송 로봇 상태별 색상 매핑
+                    if "픽업" in work or "패킹" in work:
+                        bg_color = "#2196F3"  # 파란색 (작업 대기)
+                        emoji = "📦"
+                    elif "운송중" in work or "출고중" in work or "복귀중" in work:
+                        bg_color = "#2196F3"  # 파란색 (이동 중)
+                        emoji = "🚚"
+                    elif "충전중" in work:
+                        bg_color = "#FFC107"  # 노란색 (충전)
+                        emoji = "🔋"
+                    elif "에러" in work or "ERROR" in work:
+                        bg_color = "#F44336"  # 빨간색 (에러)
+                        emoji = "⚠️"
+                    else:  # 출발 대기중, 대기중 등
+                        bg_color = "#4CAF50"  # 초록색 (대기)
+                        emoji = "✅"
+                    
+                    work_label.setText(f"{emoji} {work}")
+                    work_label.setStyleSheet(f"""
+                        background-color: {bg_color};
+                        color: white;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 8px;
+                        border: 1px solid #ccc;
+                    """)
+                # 로봇팔은 ROS2 토픽으로 업데이트하므로 여기서는 스킵
                 
                 # 통신 연결 상태 (데이터가 들어오면 서버 통신 상으로는 Online)
                 # 여기서는 'Online' 문구 보다는 데이터 갱신 여부 위주로 표시
@@ -772,17 +972,36 @@ class MainTab(QWidget):
             grid_layout.addWidget(name_label, row, 0)
             
             # 통신 연결 상태
+            robot_domain = robot.get("domain")
             status_label = QLabel()
-            self._set_status_cell_text(status_label, "Offline", "#b71c1c")
+            # 운송 로봇(51, 52, 53)은 초기 모드에 따라 설정
+            if robot_domain in [51, 52, 53]:
+                if self.use_ros_for_amr:
+                    # ROS 모드: 실제 연결 확인 필요
+                    self._set_status_cell_text(status_label, "Unknown", "#616161")
+                else:
+                    # API 모드: ROS Online 고정
+                    self._set_status_cell_text(status_label, "ROS Online", "#1e7e34")
+            else:
+                self._set_status_cell_text(status_label, "Offline", "#b71c1c")
             grid_layout.addWidget(status_label, row, 1)
             
             # 로봇 하는일
-            robot_domain = robot.get("domain")
-            # 로봇팔(60, 61)은 FSM 상태로 초기화, AMR은 "업무 대기"
+            # 로봇팔(60, 61)은 FSM 상태로 초기화, 운송 로봇(51, 52, 53)은 배송 대기
             if robot_domain in [60, 61]:
                 work_label = QLabel("⏳ 상태 대기중...")
                 work_label.setStyleSheet("""
                     background-color: #9E9E9E;
+                    color: white;
+                    font-size: 12px;
+                    font-weight: bold;
+                    padding: 8px;
+                    border: 1px solid #ccc;
+                """)
+            elif robot_domain in [51, 52, 53]:
+                work_label = QLabel("🚚 배송 대기")
+                work_label.setStyleSheet("""
+                    background-color: #4CAF50;
                     color: white;
                     font-size: 12px;
                     font-weight: bold;

@@ -106,6 +106,22 @@ STYLE_BUTTON_ORANGE = f"""
     }}
 """
 
+STYLE_BUTTON_BLUE = f"""
+    QPushButton {{
+        background-color: {COLOR_BLUE};
+        color: white;
+        font-size: 16px;
+        font-weight: bold;
+        border-radius: 5px;
+    }}
+    QPushButton:hover {{
+        background-color: #1976D2;
+    }}
+    QPushButton:pressed {{
+        background-color: #0D47A1;
+    }}
+"""
+
 STYLE_BUTTON_GRAY = f"""
     QPushButton {{
         background-color: {COLOR_GRAY};
@@ -197,4 +213,49 @@ ROBOT_STATE_EMOJIS = {
     3: "🎉",  # SUCCESS
     4: "❌",  # ERROR
     5: "🔥"   # FIRE
+}
+
+# ==================== AMR (운송로봇) 상태 코드 ====================
+# AMR 상태 이름
+AMR_STATE_NAMES = {
+    1: "WAITING",
+    2: "TRANSPORTING",
+    3: "SHIPPING",
+    4: "PACKING_WAIT",
+    5: "RETURNING",
+    6: "CHARGING",
+    7: "ERROR"
+}
+
+# AMR 상태 설명
+AMR_STATE_DESCRIPTIONS = {
+    1: "운송대기중",
+    2: "운송중",
+    3: "출고중",
+    4: "패킹대기중",
+    5: "복귀중",
+    6: "충전중",
+    7: "에러"
+}
+
+# AMR 상태별 색상
+AMR_STATE_COLORS = {
+    1: "#4CAF50",  # 운송대기중 - 녹색
+    2: "#2196F3",  # 운송중 - 파란색
+    3: "#2196F3",  # 출고중 - 파란색
+    4: "#2196F3",  # 패킹대기중 - 파란색
+    5: "#2196F3",  # 복귀중 - 파란색
+    6: "#FFC107",  # 충전중 - 노란색
+    7: "#F44336"   # 에러 - 빨간색
+}
+
+# AMR 상태별 이모지
+AMR_STATE_EMOJIS = {
+    1: "✅",  # 운송대기중
+    2: "🚚",  # 운송중
+    3: "📦",  # 출고중
+    4: "📦",  # 패킹대기중
+    5: "🔙",  # 복귀중
+    6: "🔋",  # 충전중
+    7: "⚠️"   # 에러
 }
