@@ -22,8 +22,8 @@ class PinkyDashboard(QWidget):
             "pinky3": self.ros_node.create_publisher(String, '/pinky3/task_zone/arrived', 10)
         }
 
-        self.api_base_url = "http://10.182.25.77:5000/api"
-        self.db_config = {'host': '10.182.25.77', 'user': 'lovoDB', 'password': 'LovoDB1234!', 'database': 'factory_system'}
+        self.api_base_url = "http://192.168.0.30:5000/api"
+        self.db_config = {'host': '192.168.0.30', 'user': 'lovoDB', 'password': 'LovoDB1234!', 'database': 'factory_system'}
         
         self.init_ui()
 
@@ -35,7 +35,7 @@ class PinkyDashboard(QWidget):
         self.setWindowTitle('Pinky Dashboard (Ready Signal Mode)')
         self.setGeometry(300, 300, 1000, 250)
         layout = QGridLayout()
-        headers = ["기기명", "Battery", "Status", "OrderID", "주문 제어", "도착 알림 (Picking)", "도착 알림 (Packing)"]
+        headers = ["기기명", "Battery", "Status", "OrderID", "주문 제어", "도착 알림 (Picking)", "도착 알림 (Packing)", "주문 최종 완료"]
         for col, h in enumerate(headers): layout.addWidget(QLabel(f"<b>{h}</b>"), 0, col)
 
         self.robots = {}
@@ -63,7 +63,13 @@ class PinkyDashboard(QWidget):
             btn_pack_ready.clicked.connect(lambda checked, n=name: self.send_ready_signal(n, "PACK_READY"))
             layout.addWidget(btn_pack_ready, row, 6)
 
-            self.robots[name] = {"bat_bar": bat_bar, "lbl_status": lbl_status, "lbl_oid": lbl_oid}
+            # [추가] 주문 완료 버튼
+            btn_complete = QPushButton("주문 완료")
+            btn_complete.setStyleSheet("background-color: #ffebee;")
+            btn_complete.clicked.connect(lambda checked, n=name: self.complete_order(n))
+            layout.addWidget(btn_complete, row, 7)
+
+            self.robots[name] = {"bat_bar": bat_bar, "lbl_status": lbl_status, "lbl_oid": lbl_oid, "current_oid": None}
         self.setLayout(layout)
 
     def update_tick(self):
@@ -79,7 +85,9 @@ class PinkyDashboard(QWidget):
                     if rid in self.robots:
                         self.robots[rid]["bat_bar"].setValue(int(r['battery_percent']))
                         self.robots[rid]["lbl_status"].setText(r['action_state'])
-                        self.robots[rid]["lbl_oid"].setText(f"ORD-{r['current_order_id']}" if r['current_order_id'] else "-")
+                        oid = r.get('current_order_id')
+                        self.robots[rid]["current_oid"] = oid
+                        self.robots[rid]["lbl_oid"].setText(f"ORD-{oid}" if oid else "-")
         except: pass
 
     def send_ready_signal(self, rid, status):
@@ -105,6 +113,37 @@ class PinkyDashboard(QWidget):
         finally: 
             if 'conn' in locals() and conn.is_connected():
                 conn.close()
+
+    def complete_order(self, rid):
+        oid = self.robots[rid].get("current_oid")
+        if not oid:
+            QMessageBox.warning(self, "오류", f"{rid}에 할당된 주문이 없습니다.")
+            return
+        
+        reply = QMessageBox.question(self, "주문 완료 확인", f"주문 #{oid}를 최종 완료 처리하시겠습니까?",
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            try:
+                # 1. DB 직접 업데이트 (안정성 확보)
+                conn = mysql.connector.connect(**self.db_config)
+                cursor = conn.cursor()
+                # 주문 상태 변경 (DB ENUM 규격에 맞춰 'DONE' 사용)
+                cursor.execute("UPDATE orders SET status = 'DONE', finished_at = CURRENT_TIMESTAMP WHERE order_id = %s", (oid,))
+                # 로봇 할당 해제 (사용자 요청: 이력 유지를 위해 NULL로 변경하지 않음)
+                # db_role = rid.upper()[:5] + "_" + rid[-1]
+                # cursor.execute("UPDATE robot_pinky SET current_order_id = NULL WHERE robot_role = %s", (db_role,))
+                conn.commit()
+                conn.close()
+
+                # 2. 메인 서버 API 호출 (재고 관리 등 비즈니스 로직 수행용)
+                try:
+                    requests.post(f"{self.api_base_url}/orders/{oid}/complete", timeout=1.0)
+                except: pass
+
+                QMessageBox.information(self, "완료", f"주문 #{oid}가 데이터베이스에서 완료 처리되었습니다.")
+            except Exception as e:
+                QMessageBox.critical(self, "오류", f"데이터베이스 업데이트 중 오류 발생: {str(e)}")
 
     def receive_order(self, rid):
         order = self.fetch_next_order()

@@ -313,23 +313,32 @@ def update_robot_status(status_data: dict):
             if not target: continue
             
             kind, db_role = target
-            state = info.get('state', 1) # 기본값: IDLE(1)
+            state = info.get('state', 1) 
             
-            # 문자열로 들어온 경우 정수형 코드로 매핑
-            if isinstance(state, str):
+            # 1. 숫자 형태의 값(예: 2, "2")은 있는 그대로 신뢰함 (최우선)
+            if str(state).isdigit():
+                db_state = int(state)
+            # 2. 문자열 상태 보고인 경우 매핑 (단, 요청/_REQ 신호와 혼동되지 않도록 처리)
+            elif isinstance(state, str):
                 s = state.upper()
+                # 요청(REQ)이나 시작(START) 신호는 상태 보고 데이터가 아니므로 무시하거나 기본값 처리
+                if '_REQ' in s or '_START' in s or 'READY' in s:
+                    # 이런 신호들은 상태 변경의 근거가 되지 않음 (기존 상태 유지 등을 위해 pass하거나 적절히 처리)
+                    # 여기서는 유저 요청에 따라 알 수 없는 형식일 때 6으로 처리하는 로직 유지
+                    db_state = 6 if 'CHARGING' in s and '_REQ' not in s else 1
+                    # 위 로직보다 더 안전한 방법은 아래 if/elif에서 정밀 매칭하는 것임
+                
                 if kind == 'PINKY':
                     if 'ERROR' in s: db_state = 7
-                    elif 'CHARGING' in s: db_state = 6
-                    elif 'RETURN' in s: db_state = 5
+                    # 'CHARGING' 상태는 실제 충전 중일 때만 (REQ 제외)
+                    elif 'CHARGING' in s and '_REQ' not in s: db_state = 6
+                    # 'PACK_DONE'이나 'RETURN'이 포함되면 5번
+                    elif 'RETURN' in s or 'PACK_DONE' in s or 'PACKING_DONE' in s: db_state = 5
                     elif 'PACK' in s: db_state = 4
-                    elif 'SHIPPING' in s or 'LINE' in s: db_state = 3
+                    elif 'SHIPPING' in s or 'LINE' in s or 'PICK_DONE' in s: db_state = 3
                     elif 'NAV' in s or 'MOVING' in s: db_state = 2
-                    elif 'READY' in s or 'WAIT' in s: db_state = 1
-                    else:
-                        # 알려지지 않은 문자열인 경우 기존 상태를 유지하기 위해 
-                        # 상태 업데이트를 건너뛰거나 기본값(1)을 사용합니다.
-                        db_state = 1 
+                    elif 'WAIT' in s: db_state = 1
+                    else: db_state = 6
                 else: # ARM
                     if 'INIT' in s: db_state = 0
                     elif 'IDLE' in s: db_state = 1
@@ -571,7 +580,7 @@ def complete_order(order_id: int):
             raise HTTPException(status_code=404, detail="Order not found")
         
         # 이미 완료된 주문이면 패스
-        if order['status'] == 'COMPLETED':
+        if order['status'] == 'DONE':
             return {"status": "already_completed"}
 
         # 2. 자재 재고 차감 (BOM 기반)
@@ -593,11 +602,11 @@ def complete_order(order_id: int):
                     cursor.execute("UPDATE material SET qty_on_hand = qty_on_hand - %s WHERE material_id = %s", (qty, m_id))
 
         # 3. 주문 상태 업데이트
-        cursor.execute("UPDATE orders SET status = 'COMPLETED', finished_at = CURRENT_TIMESTAMP WHERE order_id = %s", (order_id,))
+        cursor.execute("UPDATE orders SET status = 'DONE', finished_at = CURRENT_TIMESTAMP WHERE order_id = %s", (order_id,))
         
-        # 4. 담당 로봇들의 할당 해제 (Pinky & Arm)
-        cursor.execute("UPDATE robot_pinky SET current_order_id = NULL WHERE current_order_id = %s", (order_id,))
-        cursor.execute("UPDATE robot_arm SET current_order_id = NULL WHERE current_order_id = %s", (order_id,))
+        # 4. 담당 로봇들의 할당 해제 (사용자 요청: 이력 유지를 위해 NULL로 변경하지 않음)
+        # cursor.execute("UPDATE robot_pinky SET current_order_id = NULL WHERE current_order_id = %s", (order_id,))
+        # cursor.execute("UPDATE robot_arm SET current_order_id = NULL WHERE current_order_id = %s", (order_id,))
 
         conn.commit()
         return {"status": "success", "message": f"Order #{order_id} processed and closed."}

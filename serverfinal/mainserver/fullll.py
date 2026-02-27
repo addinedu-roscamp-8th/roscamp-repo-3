@@ -22,7 +22,7 @@ class AdvancedTrafficManager(Node):
         self.locked_edges = {}
         self.locked_nodes = {}
         self.waiting_queues = {}
-        self.charging_slots = {1: None, 2: None, 3: "pinky1"}
+        self.charging_slots = {1: None, 2: "pinky2", 3: "pinky3"}
         
         # 작업 관리
         self.task_queue = deque(['WP4', 'WP8', 'WP6']) 
