@@ -26,6 +26,9 @@ class MultiTrafficMonitor(Node):
             # [수정] YAML 변경에 맞춰 토픽 이름 수정 (/taskzone_arr -> /task_zone/arrived)
             self.create_subscription(String, f'/{robot}/task_zone/arrived', 
                 lambda msg, r=robot: self.zone_callback(msg, r), 10)
+            # [추가] 로봇팔 작업 완료 신호를 감시하여 내부 상태 동기화 (오버라이트 방지)
+            self.create_subscription(String, f'/{robot}/arm_working/done', 
+                lambda msg, r=robot: self.done_callback(msg, r), 10)
 
         self.timer = self.create_timer(0.5, self.display_status)
         self.get_logger().info("📡 [Pinky Monitor] Listening to traffic and zone signals...")
@@ -46,7 +49,7 @@ class MultiTrafficMonitor(Node):
                 role = role.replace('PINKY', 'PINKY_')
             
             # 상태 텍스트 매핑 (로그용)
-            state_text_map = {0:"충전중", 1:"대기중", 2:"이동중", 3:"픽업대기", 4:"출고중", 5:"패킹대기", 6:"복귀중", 7:"에러"}
+            state_text_map = {0:"...", 1:"운송대기중", 2:"운송중", 3:"출고중", 4:"패킹대기", 5:"복귀중", 6:"충전중", 7:"에러"}
             state_text = state_text_map.get(d['state'], "알수없음")
 
             # 1. robot_pinky 테이블 업데이트 (현재 상태 상시 반영)
@@ -77,33 +80,60 @@ class MultiTrafficMonitor(Node):
         self.data[robot]['req'] = msg.data
         self.data[robot]['req_cnt'] += 1
         
-        # 메시지에서 상태 코드 추출 시도 (ex: REQ|P1|2 -> 상태 2로 변경)
+        # 메시지에서 상태 코드 추출 시도 (REPORT_STATE|P1|숫자 형태만 신뢰하도록 수정)
         if '|' in msg.data:
             try:
                 parts = msg.data.split('|')
-                if len(parts) >= 3:
-                    self.data[robot]['state'] = int(parts[-1])
+                action = parts[0].upper()
+                # 로봇이 직접 보고하는 REPORT_STATE 신호만 상태 변경의 기준으로 삼음
+                if action == "REPORT_STATE":
+                    if len(parts) >= 3 and parts[-1].isdigit():
+                        self.data[robot]['state'] = int(parts[-1])
             except:
                 pass
         self.update_db(robot)
 
     def res_callback(self, msg, robot):
         self.data[robot]['res'] = msg.data
+        # 서버 응답(Response)에 의한 강제 상태 변경은 제거함
+        # 로봇이 실제 해당 동작을 완료하고 REPORT_STATE를 보낼 때까지 기다림
+        self.update_db(robot)
 
     def batt_callback(self, msg, robot):
-        self.data[robot]['batt'] = msg.data
-        self.update_db(robot)
+        """배터리 정보를 업데이트합니다. (문자열 또는 숫자 형식 모두 대응)"""
+        try:
+            if hasattr(msg, 'data'):
+                if isinstance(msg.data, str):
+                    # "81.5" 같은 문자열 형식 대응
+                    self.data[robot]['batt'] = float(msg.data)
+                else:
+                    # Float32 형식 대응
+                    self.data[robot]['batt'] = float(msg.data)
+            self.update_db(robot)
+        except Exception as e:
+            self.get_logger().error(f"배터리 변환 에러 ({robot}): {e}")
 
     def zone_callback(self, msg, robot):
         """도착 신호(Ready)를 수신하여 로봇 상태를 변경합니다."""
-        # [수정] 대소문자 구분 없이 확인하기 위해 lower() 사용
         status = msg.data.lower()
         if 'pick_ready' in status or 'pickingready' in status:
-            self.data[robot]['state'] = 3 # 픽업 대기 중
-            self.get_logger().info(f"✅ {robot} arrived at PICKING zone.")
+            self.data[robot]['state'] = 3 # 출고중
+            self.get_logger().info(f"✅ {robot} 픽업 구역 도착 (출고중).")
         elif 'pack_ready' in status or 'packingready' in status:
-            self.data[robot]['state'] = 5 # 패킹 대기 중
-            self.get_logger().info(f"✅ {robot} arrived at PACKING zone.")
+            self.data[robot]['state'] = 4 # 패킹 대기 중
+            self.get_logger().info(f"✅ {robot} 패킹 구역 도착 (패킹대기).")
+        
+        self.update_db(robot)
+
+    def done_callback(self, msg, robot):
+        """로봇팔 작업 완료 신호를 수신하여 모니터의 내부 상태를 동기화합니다."""
+        status = msg.data.upper()
+        if 'PICK_DONE' in status:
+            self.data[robot]['state'] = 3 # 출고중
+            self.get_logger().info(f"🚚 {robot}: Picking Done -> 출고중(3)")
+        elif 'PACK_DONE' in status:
+            self.data[robot]['state'] = 5 # 복귀중
+            self.get_logger().info(f"🏠 {robot}: Packing Done -> 복귀중(5)")
         
         self.update_db(robot)
 
@@ -114,7 +144,7 @@ class MultiTrafficMonitor(Node):
         print(f"   [Pinky Multi-Monitor (Domain 59)] - {now}")
         print(f"==============================================================")
         
-        state_text_map = {0:"충전중", 1:"대기중", 2:"이동중", 3:"픽업대기", 4:"출고중", 5:"패킹대기", 6:"복귀중", 7:"에러"}
+        state_text_map = {0:"...", 1:"운송대기중", 2:"운송중", 3:"출고중", 4:"패킹대기", 5:"복귀중", 6:"충전중", 7:"에러"}
         
         for robot in self.robots:
             d = self.data[robot]

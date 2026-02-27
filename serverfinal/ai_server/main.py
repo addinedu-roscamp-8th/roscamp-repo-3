@@ -276,51 +276,76 @@ def inference_worker_task():
                         confs = boxes.conf.cpu().tolist()
                         xyxy = boxes.xyxy.cpu().tolist()
 
-                        idx = 0 
-                        x1, y1, x2, y2 = xyxy[idx]
-                        cx = (x1 + x2) / 2.0
-                        cy = (y1 + y2) / 2.0
-
-                        local_map_coord = None
-                        local_base_coord = None
-                        if manager.h_matrix is not None and manager.t_base_from_map is not None:
-                            try:
-                                map_x, map_y = pixel_to_map(cx, cy, manager.h_matrix)
-                                event_map_coord = {"frame_id": "map", "x": round(map_x, 3), "y": round(map_y, 3)}
-                                if robot_id == "local":
-                                    base_x, base_y = map_to_base(map_x, map_y, manager.t_base_from_map)
-                                    local_map_coord = event_map_coord
-                                    local_base_coord = {
-                                        "frame_id": "base_link",
-                                        "x": round(base_x, 3),
-                                        "y": round(base_y, 3),
-                                    }
-                            except Exception as e:
-                                logging.debug(f"Coord Transform Error ({robot_id}): {e}")
-
-                        target_data = {
-                            "track_id": track_ids[idx],
-                            "conf": round(confs[idx], 2),
-                            "cx": round(cx, 1),
-                            "cy": round(cy, 1),
-                            "bbox": [int(x1), int(y1), int(x2), int(y2)],
-                            "map_coord": local_map_coord,
-                            "base_coord": local_base_coord,
-                        }
+                        # Find the best 'fire' object for 'local' robot
+                        target_idx = -1
+                        if robot_id == "local":
+                            # For local robot, we only care about 'fire' with high confidence
+                            for i, l in enumerate(labels):
+                                if l in GUI_FIRE_TRIGGER_LABELS and confs[i] >= 0.7: # Strict confidence for 'fire'
+                                    target_idx = i
+                                    break
+                        else:
+                            # For other robots, take the first detected object (any label)
+                            if len(labels) > 0:
+                                target_idx = 0
                         
-                        state.tracking_state = "TRACK"
-                        state.last_target = target_data
-                        state.last_track_time = now
-                        processed_frame = results[0].plot()
+                        if target_idx != -1:
+                            x1, y1, x2, y2 = xyxy[target_idx]
+                            cx = (x1 + x2) / 2.0
+                            cy = (y1 + y2) / 2.0
+
+                            local_map_coord = None
+                            local_base_coord = None
+                            if manager.h_matrix is not None and manager.t_base_from_map is not None:
+                                try:
+                                    map_x, map_y = pixel_to_map(cx, cy, manager.h_matrix)
+                                    event_map_coord = {"frame_id": "map", "x": round(map_x, 3), "y": round(map_y, 3)}
+                                    if robot_id == "local":
+                                        base_x, base_y = map_to_base(map_x, map_y, manager.t_base_from_map)
+                                        local_map_coord = event_map_coord
+                                        local_base_coord = {
+                                            "frame_id": "base_link",
+                                            "x": round(base_x, 3),
+                                            "y": round(base_y, 3),
+                                        }
+                                except Exception as e:
+                                    logging.debug(f"Coord Transform Error ({robot_id}): {e}")
+
+                            target_data = {
+                                "track_id": track_ids[target_idx],
+                                "conf": round(confs[target_idx], 2),
+                                "cx": round(cx, 1),
+                                "cy": round(cy, 1),
+                                "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                                "map_coord": local_map_coord,
+                                "base_coord": local_base_coord,
+                                "label": labels[target_idx]
+                            }
+                            
+                            state.tracking_state = "TRACK"
+                            state.last_target = target_data
+                            state.last_track_time = now
+                            state.consecutive_detections += 1
+                            processed_frame = results[0].plot()
+                        else:
+                            # IMPORTANT: Reset counter if 'fire' is not found
+                            state.consecutive_detections = 0
+                            if state.tracking_state == "TRACK":
+                                state.tracking_state = "LOST"
+                            if state.tracking_state == "LOST" and (now - state.last_track_time > 1.0):
+                                state.tracking_state = "SEARCH"
+                                state.last_target = None
+                            target_data = state.last_target
+                            processed_frame = frame_to_process.copy()
+                            
                     else:
-                        # State Logic: TRACK -> LOST -> SEARCH
+                        # No results: Reset counter
+                        state.consecutive_detections = 0
                         if state.tracking_state == "TRACK":
                             state.tracking_state = "LOST"
-                        
                         if state.tracking_state == "LOST" and (now - state.last_track_time > 1.0):
                             state.tracking_state = "SEARCH"
                             state.last_target = None
-
                         target_data = state.last_target
                         processed_frame = frame_to_process.copy()
 
@@ -335,15 +360,11 @@ def inference_worker_task():
                         "target": target_data
                     }
 
-                    gui_labels: List[str] = []
-                    if robot_id == "local":
-                        gui_labels = [label for label in labels if label in GUI_FIRE_TRIGGER_LABELS]
-                    elif state.is_udp_source:
-                        gui_labels = [label for label in labels if label in GUI_EXTINGUISH_TRIGGER_LABELS]
+                    gui_labels: List[str] = [l for l in labels if (l in GUI_FIRE_TRIGGER_LABELS or l in GUI_EXTINGUISH_TRIGGER_LABELS)]
                     if gui_labels:
                         gui_alert_overlay.update_from_labels(gui_labels, now)
 
-                    # 2-1. Fire Event Logging (UDP sources only)
+                    # 2-1. Fire Event Logging
                     event_logger.handle_detection(
                         robot_id=state.robot_id,
                         is_udp_source=state.is_udp_source,
@@ -367,12 +388,17 @@ def inference_worker_task():
                             logging.debug(f"Broadcast Error ({robot_id}): {e}")
 
                     # 4. Report to Main Server
-                    # local only: send map/base coordinates to main
+                    # local only: send coordinates ONLY if high-confidence 'fire' is stable
+                    REPORT_CONFIRM_THRESHOLD = 10  # ~2 seconds (assuming 10 FPS)
                     if (
-                        target_data
+                        state.tracking_state == "TRACK"
                         and robot_id == "local"
+                        and target_data is not None
+                        and target_data.get("label") in GUI_FIRE_TRIGGER_LABELS
+                        and state.consecutive_detections >= REPORT_CONFIRM_THRESHOLD
                         and target_data.get("map_coord") is not None
                         and target_data.get("base_coord") is not None
+                        and state.seq_counter % 5 == 0
                     ):
                         try:
                             # Using synchronous httpx call or a thread-safe way
@@ -383,6 +409,23 @@ def inference_worker_task():
                             # Don't let reporting errors crash the inference loop
                             if state.seq_counter % 100 == 1:
                                 logging.debug(f"Main Server Report Error: {e}")
+                    
+                    # 4-1. [추가] 불이 사라졌을 때 메인 서버 초기화
+                    elif robot_id == "local" and state.tracking_state != "TRACK" and state.seq_counter % 20 == 0:
+                        try:
+                            # 타겟 정보가 없는 빈 메시지를 보내 메인 서버의 최신 좌표를 초기화함
+                            empty_msg = {
+                                "robot_id": state.robot_id,
+                                "t": round(now, 3),
+                                "seq": state.seq_counter,
+                                "img": {"W": state.width, "H": state.height},
+                                "state": "SEARCH",
+                                "target": None
+                            }
+                            with httpx.Client() as client:
+                                client.post(MAIN_SERVER_URL, json=empty_msg, timeout=0.1)
+                        except Exception:
+                            pass
 
                 except Exception as e:
                     logging.debug(f"Inference Error on {robot_id}: {e}")

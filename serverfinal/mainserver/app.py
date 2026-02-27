@@ -146,30 +146,30 @@ ARM_STATE_MAP = {
 
 # 운송 로봇(Pinky) 상태 코드 매핑 (0~7)
 PINKY_STATE_MAP = {
-    0: "충전중",
-    1: "출발 대기중",
-    2: "운송중 (Nav2)",
-    3: "픽업대기 중",
-    4: "출고중 (라인트레이싱)",
-    5: "패킹대기중",
-    6: "복귀중",
-    7: "에러 (ERROR)"
+    0: "...",
+    1: "운송대기중",
+    2: "운송중",
+    3: "출고중",
+    4: "패킹대기",
+    5: "복귀중",
+    6: "충전중",
+    7: "에러"
 }
 
 def format_robot_data(rows):
-    """DB의 정수형 상태 코드를 각 로봇 특성에 맞는 한글/영문 텍스트로 변환합니다."""
+    """DB의 정수형 상태 코드를 한글 텍스트로 변환합니다."""
     for row in rows:
         kind = row.get('robot_kind')
-        state_code = row.get('action_state', 0)
+        state_code = row.get('action_state', 1) # 기본값 IDLE(1)
         
+        # 숫자를 한글로 변환하여 덮어씌움
         if kind == 'ARM':
-            row['action_state'] = ARM_STATE_MAP.get(state_code, f"UNKNOWN({state_code})")
+            row['action_state'] = ARM_STATE_MAP.get(state_code, f"알수없음({state_code})")
         else:
             row['action_state'] = PINKY_STATE_MAP.get(state_code, f"알수없음({state_code})")
             
-        # 배터리 소수점 2자리로 고정
         if 'battery_percent' in row and row['battery_percent'] is not None:
-            row['battery_percent'] = round(float(row['battery_percent']), 2)
+            row['battery_percent'] = round(float(row['battery_percent']), 1)
     return rows
 
 # ==========================================================
@@ -192,7 +192,7 @@ def get_robots():
             UNION ALL
             SELECT 
                 pinky_id AS robot_id, robot_role, 'PINKY' AS robot_kind, 
-                pose_x, pose_y, 0.0 AS pose_z, 0.0 AS pose_roll, 0.0 AS pose_pitch, pose_yaw,
+                0.0 AS pose_x, 0.0 AS pose_y, 0.0 AS pose_z, 0.0 AS pose_roll, 0.0 AS pose_pitch, 0.0 AS pose_yaw,
                 action_state, battery_percent, current_order_id 
             FROM robot_pinky
         """
@@ -235,7 +235,7 @@ def get_robot_pinkies():
         cursor.execute("""
             SELECT 
                 pinky_id AS robot_id, robot_role, 'PINKY' AS robot_kind, 
-                pose_x, pose_y, pose_yaw, battery_percent, action_state, current_order_id 
+                battery_percent, action_state, current_order_id 
             FROM robot_pinky
         """)
         rows = cursor.fetchall()
@@ -245,6 +245,52 @@ def get_robot_pinkies():
     finally:
         if 'conn' in locals() and conn.is_connected():
             conn.close()
+
+@app.post("/api/robots/pinky/{pinky_name}/assign-order")
+def assign_order_to_pinky(pinky_name: str):
+    """대기 중인 가장 오래된 주문을 찾아 특정 핑키 로봇에게 할당합니다."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        conn.start_transaction()
+
+        # 1. 'RECEIVED' 상태인 가장 오래된 주문 하나 찾기 (FOR UPDATE로 락 처리)
+        cursor.execute("SELECT order_id FROM orders WHERE status = 'RECEIVED' ORDER BY ordered_at ASC LIMIT 1 FOR UPDATE")
+        order = cursor.fetchone()
+
+        if not order:
+            conn.rollback()
+            return {"status": "no_order", "message": "대기 중인 주문이 없습니다."}
+
+        order_id = order['order_id']
+        
+        # 2. 
+        db_role = pinky_name.upper()
+        if 'PINKY' in db_role and '_' not in db_role:
+             db_role = f"PINKY_{db_role[-1]}"
+
+        # 3. 주문 상태 변경
+        cursor.execute("UPDATE orders SET status = 'IN_PROGRESS', started_at = CURRENT_TIMESTAMP WHERE order_id = %s", (order_id,))
+        
+        # 4. 로봇에게 주문 할당
+        cursor.execute("UPDATE robot_pinky SET current_order_id = %s, action_state = 1 WHERE robot_role = %s", (order_id, db_role))
+
+        conn.commit()
+        return {
+            "status": "success", 
+            "order_id": order_id, 
+            "robot_role": db_role,
+            "message": f"주문 #{order_id}가 {db_role}에게 성공적으로 할당되었습니다."
+        }
+    except Exception as e:
+        if conn: conn.rollback()
+        print(f"❌ Order Assignment Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
 
 @app.post("/api/status")
 def update_robot_status(status_data: dict):
@@ -273,15 +319,17 @@ def update_robot_status(status_data: dict):
             if isinstance(state, str):
                 s = state.upper()
                 if kind == 'PINKY':
-                    if 'CHARGING' in s: db_state = 0
-                    elif 'READY' in s or 'WAIT' in s: db_state = 1
+                    if 'ERROR' in s: db_state = 7
+                    elif 'CHARGING' in s: db_state = 6
+                    elif 'RETURN' in s: db_state = 5
+                    elif 'PACK' in s: db_state = 4
+                    elif 'SHIPPING' in s or 'LINE' in s: db_state = 3
                     elif 'NAV' in s or 'MOVING' in s: db_state = 2
-                    elif 'PICKUP' in s: db_state = 3
-                    elif 'SHIPPING' in s or 'LINE' in s: db_state = 4
-                    elif 'PACK' in s: db_state = 5
-                    elif 'RETURN' in s: db_state = 6
-                    elif 'ERROR' in s: db_state = 7
-                    else: db_state = 1
+                    elif 'READY' in s or 'WAIT' in s: db_state = 1
+                    else:
+                        # 알려지지 않은 문자열인 경우 기존 상태를 유지하기 위해 
+                        # 상태 업데이트를 건너뛰거나 기본값(1)을 사용합니다.
+                        db_state = 1 
                 else: # ARM
                     if 'INIT' in s: db_state = 0
                     elif 'IDLE' in s: db_state = 1
@@ -311,11 +359,10 @@ def update_robot_status(status_data: dict):
                 # 핑키는 배터리 및 주행 좌표(3축) 업데이트
                 cursor.execute("""
                     UPDATE robot_pinky 
-                    SET action_state = %s, battery_percent = %s, pose_x = COALESCE(%s, pose_x), 
-                        pose_y = COALESCE(%s, pose_y), pose_yaw = COALESCE(%s, pose_yaw), 
+                    SET action_state = %s, battery_percent = %s, 
                         last_seen_at = CURRENT_TIMESTAMP 
                     WHERE robot_role = %s
-                """, (db_state, battery, px, py, yaw, db_role))
+                """, (db_state, battery, db_role))
             
         conn.commit()
         return {"status": "success"}
@@ -506,6 +553,60 @@ def get_order_command(order_id: int):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn and conn.is_connected(): conn.close()
+
+@app.post("/api/orders/{order_id}/complete")
+def complete_order(order_id: int):
+    """[Business Logic] 주문을 최종 완료 처리하고 사용된 자재 재고를 차감합니다."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        conn.start_transaction()
+
+        # 1. 주문 정보 확인
+        cursor.execute("SELECT status, furniture_id, quantity FROM orders WHERE order_id = %s", (order_id,))
+        order = cursor.fetchone()
+        
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        
+        # 이미 완료된 주문이면 패스
+        if order['status'] == 'COMPLETED':
+            return {"status": "already_completed"}
+
+        # 2. 자재 재고 차감 (BOM 기반)
+        f_id = order['furniture_id']
+        qty = order['quantity']
+        
+        cursor.execute("""
+            SELECT top_material_id, leg_material_id, wheel_material_id, kit_material_id 
+            FROM furniture WHERE furniture_id = %s
+        """, (f_id,))
+        bom = cursor.fetchone()
+        
+        if bom:
+            # 사용된 자재들(BOM) 순회하며 재고 감소
+            material_ids = [bom['top_material_id'], bom['leg_material_id'], 
+                            bom['wheel_material_id'], bom['kit_material_id']]
+            for m_id in material_ids:
+                if m_id:
+                    cursor.execute("UPDATE material SET qty_on_hand = qty_on_hand - %s WHERE material_id = %s", (qty, m_id))
+
+        # 3. 주문 상태 업데이트
+        cursor.execute("UPDATE orders SET status = 'COMPLETED', finished_at = CURRENT_TIMESTAMP WHERE order_id = %s", (order_id,))
+        
+        # 4. 담당 로봇들의 할당 해제 (Pinky & Arm)
+        cursor.execute("UPDATE robot_pinky SET current_order_id = NULL WHERE current_order_id = %s", (order_id,))
+        cursor.execute("UPDATE robot_arm SET current_order_id = NULL WHERE current_order_id = %s", (order_id,))
+
+        conn.commit()
+        return {"status": "success", "message": f"Order #{order_id} processed and closed."}
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
 
 # ==========================================================
 # 6. 로그 조회 및 이력 관리

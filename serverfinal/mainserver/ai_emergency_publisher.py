@@ -42,6 +42,18 @@ class FireEmergencyPublisher(Node):
         self.sent_count = 0
         self.max_repeat = REPEAT_COUNT
         
+        # 5. [중요] 시작 시점의 시퀀스 번호 기록 (과거 기록 무시용)
+        self.start_seq = -1
+        try:
+            resp = requests.get(self.coord_api_url, timeout=0.5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data and 'seq' in data:
+                    self.start_seq = data['seq']
+                    self.get_logger().info(f"⏳ [READY] Ignoring old data (seq <= {self.start_seq}). Waiting for new detection...")
+        except Exception:
+            self.get_logger().info("⏳ [READY] No existing data found. Waiting for new detection...")
+
         # 0.1초 간격으로 체크 및 실행
         self.timer = self.create_timer(0.1, self.emergency_loop)
         
@@ -55,8 +67,11 @@ class FireEmergencyPublisher(Node):
                 if response.status_code == 200:
                     data = response.json()
                     if data and 'seq' in data:
-                        self.get_logger().error(f"🔥 DETECTION! Starting to send command {self.max_repeat} times.")
-                        self.is_emergency_active = True
+                        current_seq = data['seq']
+                        # 시작 시점보다 큰(새로운) 시퀀스 번호가 들어와야 실행
+                        if current_seq > self.start_seq:
+                            self.get_logger().error(f"🔥 NEW DETECTION! (seq: {current_seq}) Starting to send command.")
+                            self.is_emergency_active = True
             except Exception:
                 pass
         
