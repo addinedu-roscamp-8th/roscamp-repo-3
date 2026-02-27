@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>장바구니 - LOVO</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 상단 네비게이션 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <a href="index.html"><h1>LOVO</h1></a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="furniture.html">가구 주문하기</a></li>
+                <li><a href="materials.html">현재 모든 자재 수량</a></li>
+                <li><a href="cart.html" class="active">장바구니 <span id="cart-count" class="cart-badge">0</span></a></li>
+                <li><a href="about.html">ABOUT LOVO</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- 메인 콘텐츠 -->
+    <main class="main-content">
+        <section class="cart-section">
+            <h2>장바구니</h2>
+            
+            <div id="empty-cart-message" class="empty-cart-message">
+                <p>장바구니가 비어있습니다.</p>
+                <a href="furniture.html" class="cta-button">가구 주문하러 가기</a>
+            </div>
+            
+            <div id="cart-content" class="cart-content" style="display: none;">
+                <div class="cart-items">
+                    <table class="cart-table">
+                        <thead>
+                            <tr>
+                                <th>가구</th>
+                                <th>자재</th>
+                                <th>옵션</th>
+                                <th>수량</th>
+                                <th>삭제</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cart-tbody">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="cart-summary">
+                    <div class="summary-card">
+                        <h3>주문 요약</h3>
+                        <div class="summary-item">
+                            <span>총 자재 종류:</span>
+                            <strong id="total-items-count">0</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span>총 수량:</span>
+                            <strong id="total-quantity-count">0</strong>
+                        </div>
+                        <button class="submit-button" onclick="confirmOrder()">주문 완료</button>
+                        <a href="furniture.html" class="secondary-button">계속 쇼핑하기</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 푸터 -->
+    <footer class="footer">
+        <p>&copy; 2026 LOVO. All rights reserved.</p>
+    </footer>
+
+    <script src="script.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            displayCart();
+        });
+    </script>
+</body>
+</html>

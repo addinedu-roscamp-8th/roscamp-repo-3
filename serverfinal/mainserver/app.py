@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 import mysql.connector
@@ -60,6 +61,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 웹 정적 파일 서빙: 웹 브라우저에서 사이트를 볼 수 있게 해줍니다.
+app.mount("/site", StaticFiles(directory="/home/addinedu/Desktop/lovo/serverfinal/web"), name="web")
+
 # Database helper (using central db_manager)
 def get_db_connection():
     """Returns a connection from the global DB pool."""
@@ -76,10 +80,11 @@ class OrderItem(BaseModel):
     components: Optional[dict] = None
 
 class OrderCreate(BaseModel):
-    """새 주문 생성을 위한 요청 데이터 구조"""
+    """새 주문 생성을 위한 요청 데이터 구조 (웹 프론트엔드 호환)"""
     items: List[OrderItem]
+    timestamp: Optional[str] = None
+    customer_name: Optional[str] = None
     customer_phone: Optional[str] = "010-0000-0000"
-    statuses: dict
 
 class OrderResponse(BaseModel):
     """주문 목록 응답 구조"""
@@ -108,6 +113,7 @@ class AICoordinateTarget(BaseModel):
     bbox: Optional[List[int]] = None
     map_coord: Optional[dict] = None
     base_coord: Optional[dict] = None
+    label: Optional[str] = None
 
 class AICoordinateData(BaseModel):
     """AI 서버로부터 전달받는 정밀 분석 데이터 구조"""
@@ -449,62 +455,82 @@ def get_charging_stations():
 
 @app.post("/api/orders", status_code=201)
 def create_order(order: OrderCreate):
-    """새로운 생산 주문을 접수합니다."""
+    """새로운 생산 주문을 접수하고 공정 명령(Picking/Packing)을 생성합니다."""
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
+        conn.start_transaction()
         
-        # 고객 확인 및 생성 (데모용 단순화)
+        # 1. 고객 정보 처리 (없으면 생성)
         phone = order.customer_phone or "010-0000-0000"
         cursor.execute("SELECT customer_id FROM customer WHERE phone = %s", (phone,))
         cust = cursor.fetchone()
         customer_id = cust['customer_id'] if cust else None
+        
         if not customer_id:
-            cursor.execute("INSERT INTO customer (name, phone) VALUES ('Demo User', %s)", (phone,))
+            cursor.execute("INSERT INTO customer (name, phone) VALUES (%s, %s)", 
+                           (order.customer_name or "Web User", phone))
             customer_id = cursor.lastrowid
             
-        # 2. 주문 순번 확인 (X값 결정: 1, 2, 3 순환)
+        # 2. 현재 주문 총 개수 파악 (웨이포인트 x_val 결정용)
         cursor.execute("SELECT COUNT(*) as count FROM orders")
         order_count = cursor.fetchone()['count']
         
-        order_ids = []
+        created_order_ids = []
         for i, item in enumerate(order.items):
-            # i번째 아이템의 X 좌표 결정 (전체 주문 수 + 현재 루프 인덱스)
+            # i번째 아이템의 X 좌표 결정 (1, 2, 3 로테이션)
             x_val = ((order_count + i) % 3) + 1
             
-            cat = item.furnitureType.upper()
-            # 해당 카테고리의 가구 정보 및 BOM 조회
+            # 3. 정확한 가구 정보 조회
+            type_query = item.furnitureType.upper()
             cursor.execute("""
-                SELECT furniture_id, top_material_id, leg_material_id, wheel_material_id, kit_material_id 
-                FROM furniture WHERE category = %s LIMIT 1
-            """, (cat,))
+                SELECT * FROM furniture 
+                WHERE category = %s OR name LIKE %s 
+                LIMIT 1
+            """, (type_query, f"%{type_query}%"))
             furn = cursor.fetchone()
             
-            if furn:
-                # BOM 구성에 따른 ABCD 비트 생성
-                # A: 프레임(4), B: 다리(5), C: 바퀴(6), D: 작업킷(7) / 없으면 0
-                a = "4" if furn['top_material_id'] else "0"
-                b = "5" if furn['leg_material_id'] else "0"
-                c = "6" if furn['wheel_material_id'] else "0"
-                d = "7" if furn['kit_material_id'] else "0"
-                
-                picking_cmd = float(f"{x_val}.{a}{b}{c}{d}")
-                packing_cmd = float(f"0.{a}{b}{c}{d}")
-                
-                cursor.execute(
-                    """INSERT INTO orders (customer_id, furniture_id, quantity, picking_command, packing_command) 
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (customer_id, furn['furniture_id'], item.quantity, picking_cmd, packing_cmd)
-                )
-                order_ids.append(cursor.lastrowid)
+            if not furn:
+                print(f"❌ Error: Furniture type '{type_query}' not found in DB.")
+                continue
+
+            # 4. 공정 명령(Command) 생성 로직
+            # A:상판(4), B:다리(5), C:바퀴(6), D:키트(7) - 존재할 때만 해당 숫자 할당
+            bits = [
+                "4" if furn.get('top_material_id') else "0",
+                "5" if furn.get('leg_material_id') else "0",
+                "6" if furn.get('wheel_material_id') else "0",
+                "7" if furn.get('kit_material_id') else "0"
+            ]
+            cmd_suffix = "".join(bits)
+            
+            picking_cmd = float(f"{x_val}.{cmd_suffix}")
+            packing_cmd = float(f"0.{cmd_suffix}")
+            
+            # 5. DB 저장
+            cursor.execute("""
+                INSERT INTO orders (customer_id, furniture_id, quantity, picking_command, packing_command, status) 
+                VALUES (%s, %s, %s, %s, %s, 'RECEIVED')
+            """, (customer_id, furn['furniture_id'], item.quantity, picking_cmd, packing_cmd))
+            
+            created_order_ids.append(cursor.lastrowid)
+            print(f"✅ Order Created: ID={cursor.lastrowid}, Cmd={picking_cmd}")
 
         conn.commit()
-        return {'message': 'Order created successfully', 'orderIds': order_ids}
-    except Error as e:
-        if 'conn' in locals() and conn.is_connected(): conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "status": "success",
+            "message": f"Successfully created {len(created_order_ids)} orders.",
+            "order_ids": created_order_ids
+        }
+    except Exception as e:
+        if conn: conn.rollback()
+        print(f"🔥 Critical Order Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database Order Error: {str(e)}")
     finally:
-        if 'conn' in locals() and conn.is_connected(): conn.close()
+        if conn and conn.is_connected():
+            cursor.close()
+            conn.close()
 
 @app.get("/api/orders")
 def get_orders():
@@ -653,59 +679,55 @@ def get_inventory_logs():
 latest_ai_coordinates: Optional[AICoordinateData] = None
 
 @app.post("/api/ai/coordinates")
-def receive_ai_coordinates(data: AICoordinateData):
-    """AI 비전 서버로부터 탐지된 객체의 정밀 좌표를 수신하여 DB에 저장합니다."""
+async def receive_ai_coordinates(data: AICoordinateData):
+    """AI 서버 데이터를 분석하여 정밀 로그 및 화재 정보를 기록합니다."""
     global latest_ai_coordinates
     latest_ai_coordinates = data
+
+    # 1. 로봇 명칭 통일
+    mapping = {"local": "topview", "robot1": "arm"}
+    loc_name = mapping.get(data.robot_id.lower(), data.robot_id)
+
+    # 2. 데이터 추출 (AI가 보내는 값들)
+    ai_state = data.state
+    seq = data.seq
     
-    # 터미널에서 즉시 확인 가능하도록 로그 추가
-    print(f"📍 [AI DATA RECV] {data.robot_id} (seq: {data.seq})")
-    
+    # target 정보를 더 깊게 파고 들어감
+    label, conf, x, y = None, None, None, None
+    if data.target:
+        label = getattr(data.target, 'label', None)
+        conf = getattr(data.target, 'conf', None)
+        if data.target.base_coord:
+            x = data.target.base_coord.get('x')
+            y = data.target.base_coord.get('y')
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # 1. 로봇 식별
-        pinky_id = None
-        r_id_lower = data.robot_id.lower()
-        if 'pinky' in r_id_lower:
-            p_num = "".join(filter(str.isdigit, r_id_lower))
-            db_role = f"PINKY_{p_num}" if p_num else "PINKY_1"
-            
-            cursor.execute("SELECT pinky_id FROM robot_pinky WHERE robot_role = %s", (db_role,))
-            res = cursor.fetchone()
-            if res:
-                pinky_id = res['pinky_id'] if isinstance(res, dict) else res[0]
+        # 3. 신규 스키마에 맞춰 INSERT
+        cursor.execute("""
+            INSERT INTO robot_state_log (robot_name, seq, ai_state, target_label, conf, x, y)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (loc_name, seq, ai_state, label, conf, x, y))
 
-        # 2. 정밀 좌표 추출
-        px, py, pz = 0.0, 0.0, 0.0
-        if data.target and data.target.base_coord:
-            px = data.target.base_coord.get('x', 0.0)
-            py = data.target.base_coord.get('y', 0.0)
-            pz = data.target.base_coord.get('z', 0.0)
-
-        # 3. DB 기록
-        query = """
-            INSERT INTO robot_state_log 
-            (pinky_id, pose_x, pose_y, pose_z, action_state, ts) 
-            VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-        """
-        cursor.execute(query, (pinky_id, px, py, pz, 2))
+        # 화재 발생 시 사건 테이블에 중복 기록
+        if ai_state.upper() == 'FIRE' or (label and label.lower() == 'fire' and (conf or 0) > 0.7):
+            cursor.execute(
+                "INSERT INTO fire_incidents (location, description, severity) VALUES (%s, %s, 'CRITICAL')",
+                (loc_name, f"AI Fire! Conf: {conf}, State: {ai_state}")
+            )
         conn.commit()
-        print(f"💾 [AI DB SAVE] {data.robot_id} -> Log ID: {cursor.lastrowid}")
-        
     except Exception as e:
-        print(f"⚠️ [AI DB 로그 에러] {e}")
+        print(f"⚠️ [AI Log Error] {e}")
     finally:
         if 'conn' in locals() and conn.is_connected():
-            cursor.close()
-            conn.close()
-
+            cursor.close(); conn.close()
     return {"status": "success"}
 
 @app.get("/api/ai/coordinates")
 def get_ai_coordinates():
-    """저장된 최신 AI 정밀 좌표를 반환합니다 (피킹 보정용)."""
+    """최신 AI 정밀 좌표를 반환합니다."""
     return latest_ai_coordinates
 
 @app.get("/api/robot-logs")
@@ -731,7 +753,7 @@ def get_robot_logs():
 
 @app.get("/api/fire-logs")
 def get_fire_logs():
-    """화재 감지 및 이상 징후 이력을 조회합니다."""
+    """화재 감지 이력을 조회합니다."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
@@ -742,14 +764,15 @@ def get_fire_logs():
 
 @app.post("/api/ai/event-log")
 async def receive_ai_event(data: AIEventLogData):
-    """AI 서버로부터 화재 등 이벤트 로그를 수신하여 DB에 저장"""
+    """AI 서버로부터 직접 화재 이벤트 로그를 수신합니다."""
+    loc = "topview" if "local" in data.robot_id.lower() else "arm"
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         # fire_incidents 테이블에 화재 발생 기록 저장
         cursor.execute(
-            "INSERT INTO fire_incidents (robot_id, message, occurred_at) VALUES (%s, %s, CURRENT_TIMESTAMP)",
-            (data.robot_id, data.message)
+            "INSERT INTO fire_incidents (location, description) VALUES (%s, %s)",
+            (loc, data.message)
         )
         conn.commit()
         return {"status": "success"}
