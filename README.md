@@ -9,7 +9,7 @@ ROS2와 AI를 활용한 자율주행 로봇개발자 부트캠프 3팀 저장소
 
   <h3 align="center">LOVO (Logistics Of Value and Order)</h3>
   <p align="center">
-    <a href="https://https://www.canva.com/design/DAHCTh33jQ4/XuixnsayHb_guG8WM1gKiA/edit?utm_content=DAHCTh33jQ4&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton">Presentation</a>
+    <a href="https://www.canva.com/design/DAHCTh33jQ4/XuixnsayHb_guG8WM1gKiA/edit?utm_content=DAHCTh33jQ4&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton">Presentation</a>
   </p>
 </p>
 <hr>
