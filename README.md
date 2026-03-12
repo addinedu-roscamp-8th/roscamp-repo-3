@@ -46,25 +46,28 @@
 
 ---
 
+## System Scenario
+![Image](https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/07cb2ef7b5eaefb6cef558b9d44d5f9f0e466608/assets/system%20scenario.png)
+
+<br >
+
 ## System Architecture
 ![Image](https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/1f7d82c786ce4e3175324b4f4a0e90a2ba804f55/assets/sw%20Architecture.png)
 
 <br >
 
 ## State Diagram
-![Image](https://github.com/user-attachments/assets/9c227d2b-735e-447f-b443-378c764ac177)
+![Image](https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/31c056318fc48424f5592c829254a8aaff029cca/assets/state%20diagram.png)
 
 <br >
 
 ## Map
-![Image](https://github.com/user-attachments/assets/5980b5cf-c713-46f2-b932-a4a1e79b41f0)
-![Image](https://github.com/user-attachments/assets/1ad8dcbe-bb60-4604-b8e8-d1728766a4c6)
-![Image](https://github.com/user-attachments/assets/77c768c6-cb1d-4fd6-8569-78f131175441)
-![Image](https://github.com/user-attachments/assets/86d3a779-1ed6-48c7-a054-6efef0a5ca3b)
+![Image](https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/31c056318fc48424f5592c829254a8aaff029cca/assets/map.png)
+![Image](https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/31c056318fc48424f5592c829254a8aaff029cca/assets/map_description.png)
 
 <br >
 
 ## Admin GUI
-![Image](https://github.com/user-attachments/assets/70f208c6-8202-43f4-b70c-6ff377562111)
+![Image](https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/31c056318fc48424f5592c829254a8aaff029cca/assets/GUI.png)
 
 <br >
