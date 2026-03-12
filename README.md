@@ -3,8 +3,8 @@ ROS2와 AI를 활용한 자율주행 로봇개발자 부트캠프 3팀 저장소
 
 <br />
 <p align="center">
-  <a href="https://github.com/addinedu-roscamp-5th/roscamp-repo-1">
-    <img src="https://github.com/user-attachments/assets/a59ce405-fc45-4c24-baba-a17441084595" alt="Logo" width="620px">
+  <a href="https://github.com/addinedu-roscamp-8th/roscamp-repo-3">
+    <img src="https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/12de46abfdf4ef5c27808b2bca33f56fa3812dcd/assets/LOVO%20logo.png" alt="Logo" width="620px">
   </a>
 
   <h3 align="center">HANA (Human-AI Nursing Assistant)</h3>
