@@ -71,3 +71,8 @@
 ![Image](https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/31c056318fc48424f5592c829254a8aaff029cca/assets/GUI.png)
 
 <br >
+
+## Demo Video
+<a href="https://youtu.be/yq4Csl1CFaA">Video link</a>
+
+<br >
