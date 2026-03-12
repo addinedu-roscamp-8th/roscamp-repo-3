@@ -47,7 +47,7 @@
 ---
 
 ## System Architecture
-![Image](https://github.com/user-attachments/assets/e4ae8608-5f9b-4ebd-b7c2-dd7db8775f8c)
+![Image](https://github.com/addinedu-roscamp-8th/roscamp-repo-3/blob/1f7d82c786ce4e3175324b4f4a0e90a2ba804f55/assets/sw%20Architecture.png)
 
 <br >
 
