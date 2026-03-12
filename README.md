@@ -24,13 +24,13 @@
 - **핵심 기술**: Linux, ROS2, Python, C++, Nav2, MoveIt2, YOLO, OpenCV, MySQL, FastAPI, React, PyQt
 
 ## 팀 구성 및 역할
-|        | Name | Job |
-|--------|------|-----|
-| Leader | 강태용 |  Project Manage, Integrated Manipulator Control, GUI |   
-| Worker | 김동영 |  Mobile Robot, Main Server |   
-| Worker | 서태현 |  Manipulator, Motion Planning |    
-| Worker | 박현서 |  Web, DB Manage, server Integration | 
-| Worker | 이예지 |  AI Server | 
+| position | Name | Job |
+|----------|-------|------------------------------------------------------|
+|  Leader  | 강태용 |  Project Manage, Integrated Manipulator Control, GUI |   
+|  Worker  | 김동영 |  Mobile Robot, Main Server |   
+|  Worker  | 서태현 |  Manipulator, Motion Planning |    
+|  Worker  | 박현서 |  Web, DB Manage, server Integration | 
+|  Worker  | 이예지 |  AI Server | 
 
 ---
 
