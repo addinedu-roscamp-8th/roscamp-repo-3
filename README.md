@@ -26,7 +26,7 @@
 ## 팀 구성 및 역할
 | position | Name | Job |
 |----------|-------|------------------------------------------------------|
-|  Leader  | 강태용 |  Project Manage, Integrated Manipulator Control, GUI |   
+|  Leader  | 장태용 |  Project Manage, Integrated Manipulator Control, GUI |   
 |  Worker  | 김동영 |  Mobile Robot, Main Server |   
 |  Worker  | 서태현 |  Manipulator, Motion Planning |    
 |  Worker  | 박현서 |  Web, DB Manage, server Integration | 
